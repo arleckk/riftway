@@ -105,7 +105,7 @@ existentes; ninguna función de producto depende de CrossOver.
 | **M3** ✅ | Botella nueva + ejecutar instalador + diff + biblioteca + puentes automáticos, sobre el runtime propio | [PRD-01](prd/PRD-01-instalar-con-doble-clic.md) §4–7, [PRD-04](prd/PRD-04-biblioteca-y-lanzamiento.md) | DSR, Steam, GOG (Inno) y un MSI instalan y quedan en la biblioteca sin pasos manuales |
 | **M4** 🔶 | Perfiles + detección de anti-cheat + compatibilidad online (✅ perfiles, detección, estados en la app, identidad honesta; falta el feed firmado y validar más anti-cheats) | [PRD-05](prd/PRD-05-perfiles-y-compatibilidad.md), [PRD-07](prd/PRD-07-compatibilidad-online.md) | Cada juego del corpus tiene estado y causa de bloqueo correctos antes de instalar |
 | **M5** 🔶 | Distribución: firma, actualizaciones, beta (✅ feed firmado Ed25519, actualizador de app, runtime y perfiles, DMG, desinstalar; falta dónde publicar y la beta) | [PRD-06](prd/PRD-06-distribucion-y-actualizaciones.md) | Beta pública que se actualiza sola (notarizada cuando haya Developer ID) |
-| **M6** | Controles: el control llega al juego (✅ capa 0) y se traduce a teclado y mouse por programa, launcher y juego | [PRD-08](prd/PRD-08-controles.md) | DSR completo con control: launcher en modo escritorio, juego con XInput |
+| **M6** | Controles: el control llega al juego (✅ capa 0) y se traduce a teclado y mouse por programa, launcher y juego | [PRD-08](prd/PRD-08-controles.md) | DSR completo con control: launcher en modo escritorio, juego en modo teclado |
 
 ## Corpus de prueba
 

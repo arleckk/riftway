@@ -14,9 +14,10 @@ Jugar con control en la Mac tiene tres casos:
    control de la Mac como un control de Xbox.
 2. **El programa no soporta control** (launchers, juegos viejos): hay que traducir el
    control a teclado y mouse, como Steam Input.
-3. **Un juego son varios programas**: en DSR, `SuperRumble Launcher.exe` (.NET, sin
-   soporte de control: se maneja con mouse) lanza `Client-Win64-Shipping.exe` (UE 5.4,
-   XInput). El mapeo tiene que seguir al programa que está al frente.
+3. **Un juego son varios programas**: en DSR, `SuperRumble Launcher.exe` (.NET: se
+   maneja con mouse) lanza `Client-Win64-Shipping.exe` (UE 5.4, se juega con teclado y
+   mouse). Ninguno de los dos soporta control. El mapeo tiene que seguir al programa
+   que está al frente.
 
 ## Lo que encontramos
 
@@ -27,9 +28,12 @@ DirectInput y registra cada botón de XInput).
 - **El runtime ya trae la pila completa**: `winebus.sys` con backends SDL2 e IOHID,
   `winexinput.sys`, XInput 1.1–1.4, DirectInput, `gameinput.dll` y
   `Windows.Gaming.Input`.
-- **El cliente de DSR usa XInput**: los logs de diagnóstico (`+loaddll`) muestran que
-  `Client-Win64-Shipping.exe` carga `XINPUT1_4.dll` ~28 s después de arrancar (y
-  `hid.dll` a los 9 s). El launcher no carga ninguna API de control.
+- **Cargar XInput no es soportar control**: `Client-Win64-Shipping.exe` carga
+  `XINPUT1_4.dll` ~28 s después de arrancar (lo trae Unreal Engine), pero DSR no asigna
+  acciones al control. Con la capa 0 activa, la sesión del 2026-10-14 carga
+  `winexinput.sys` (el DS4 llega como control de Xbox) y el juego no reacciona, como ya
+  sabía quien lo juega. La detección automática no puede basarse en las importaciones:
+  el modo de cada programa lo dicen el perfil o el jugador.
 - **Sin ajustes, el DS4 no llega a XInput**: Wine prefiere entregar los controles de
   PlayStation "crudos" (hidraw), igual que Windows, donde el DS4 tampoco es XInput
   (`winebus.sys/main.c`, `is_hidraw_enabled`). DirectInput lo ve; XInput no.
@@ -86,7 +90,8 @@ Conjuntos de acciones, por programa, en el perfil del juego o editados por el ju
 | `off` | — | Nada |
 
 Para DSR: `SuperRumble Launcher.exe` en `desktop` y `Client-Win64-Shipping.exe` en
-`native`. Al cambiar el programa al frente (el launcher lanza el cliente) cambia el
+`keyboard`, con XInput apagado para el cliente (así no recibe nada por las dos vías si
+algún día lo lee). Al cambiar el programa al frente (el launcher lanza el cliente) cambia el
 conjunto, sin que el jugador haga nada.
 
 Para que un juego en modo `keyboard` que **también** lee XInput no reciba cada botón dos
@@ -125,7 +130,7 @@ dispositivo, igual que con Steam Input en Windows (que presenta dispositivos vir
 "controller": {
   "programs": {
     "SuperRumble Launcher.exe": { "mode": "desktop" },
-    "Client-Win64-Shipping.exe": { "mode": "native" }
+    "Client-Win64-Shipping.exe": { "mode": "keyboard", "bindings": { "…": "…" } }
   }
 }
 ```
@@ -146,8 +151,8 @@ como las demás opciones.
 ## Plan
 
 1. ✅ Capa 0 por defecto (este PRD).
-2. Probar DSR con el DS4 de punta a punta (cliente con XInput).
-3. `riftway-input` con `desktop` para el launcher de DSR, detección del programa al frente
-   y permiso de Accesibilidad.
-4. `keyboard` con editor de mapeos en la app y la sección `controller` de los perfiles.
+2. ✅ DSR con la capa 0: el control llega (`winexinput.sys`), el juego no lo usa.
+3. `riftway-input` con `desktop` (launcher) y `keyboard` (cliente de DSR), detección del
+   programa al frente y permiso de Accesibilidad.
+4. Editor de mapeos en la app y la sección `controller` de los perfiles.
 5. Capa 1 (remapeo de SDL) y la opción de PlayStation crudo.
