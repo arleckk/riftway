@@ -259,6 +259,11 @@ public struct BottleSetup: Sendable {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let conf = profile?.dxmtConfText ?? "# Written by Riftway from the game's profile.\n"
         try Data(conf.utf8).write(to: folder.appendingPathComponent("dxmt.conf"))
+        // The profile's controller setup, unless the player has one.
+        if let controller = profile?.controller, ControllerLayout.read(bottle: root) == nil {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try controller.write(bottle: root)
+        }
         var data = Data([0xFF, 0xFE])
         for unit in settingsFile.utf16 { data += [UInt8(unit & 0xFF), UInt8(unit >> 8)] }
         try data.write(to: folder.appendingPathComponent("settings.reg"))

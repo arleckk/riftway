@@ -2,16 +2,32 @@
   "schema": 1,
   "id": "digimon-super-rumble",
   "name": "Digimon Super Rumble",
-  "revision": 1,
+  "revision": 2,
   "match": {
-    "product": ["Digimon SuperRumble", "Digimon Super Rumble"],
-    "company": ["Movegames", "Move Interactive Co., Ltd."],
-    "signer": ["Move Interactive Co., Ltd."],
-    "installer": ["SuperRumble Installer*.exe"],
-    "executables": ["SuperRumble Launcher.exe", "Client-Win64-Shipping.exe"]
+    "product": [
+      "Digimon SuperRumble",
+      "Digimon Super Rumble"
+    ],
+    "company": [
+      "Movegames",
+      "Move Interactive Co., Ltd."
+    ],
+    "signer": [
+      "Move Interactive Co., Ltd."
+    ],
+    "installer": [
+      "SuperRumble Installer*.exe"
+    ],
+    "executables": [
+      "SuperRumble Launcher.exe",
+      "Client-Win64-Shipping.exe"
+    ]
   },
   "status": "verified",
-  "anticheat": { "vendor": "xigncode3", "kernel": false },
+  "anticheat": {
+    "vendor": "xigncode3",
+    "kernel": false
+  },
   "tested": {
     "date": "2026-10-13",
     "macos": "26.6",
@@ -19,13 +35,104 @@
     "runtime": "rw-0.1.2-spike",
     "online": true
   },
-  "app_dpi": { "dpi": 192, "programs": ["SuperRumble Launcher.exe"] },
+  "app_dpi": {
+    "dpi": 192,
+    "programs": [
+      "SuperRumble Launcher.exe"
+    ]
+  },
   "program_dll_overrides": {
-    "SuperRumble Launcher.exe": { "winegstreamer": "" }
+    "SuperRumble Launcher.exe": {
+      "winegstreamer": ""
+    }
   },
   "registry": {
-    "HKCU/Software/Movegames/Digimon SuperRumble": { "DirectX11Use": "1" }
+    "HKCU/Software/Movegames/Digimon SuperRumble": {
+      "DirectX11Use": "1"
+    }
   },
   "play_link": "dsropen",
-  "notes": "Usa DirectX 11 (la casilla \"DirectX 11 실행\" del launcher): con D3D12 se queda en los logos. winegstreamer está apagado solo para el launcher, cuya vista web se cae al cerrar con él; el cliente conserva los videos. Jugar abre el sitio la primera vez; después usa el último enlace dsropen que el sitio mandó. Pendiente: sesiones largas."
+  "controller": {
+    "otherPrograms": "native",
+    "programs": {
+      "Client-Win64-Shipping.exe": {
+        "actionSet": {
+          "base": {
+            "bindings": {
+              "a": "key:F",
+              "b": "key:ESCAPE",
+              "dpadDown": "key:W",
+              "dpadLeft": "key:Q",
+              "dpadRight": "key:E",
+              "dpadUp": "key:R",
+              "l1": "layer:L1",
+              "l2": "mouse:right",
+              "l3": "key:BACK_TICK",
+              "leftStickDown": "key:S",
+              "leftStickLeft": "key:A",
+              "leftStickRight": "key:D",
+              "leftStickUp": "key:W",
+              "r1": "layer:R1",
+              "r2": "mouse:left",
+              "select": "key:I",
+              "start": "key:M",
+              "touchpadLeft": "key:T",
+              "touchpadRight": "key:SPACE",
+              "x": "key:G",
+              "y": "key:V"
+            }
+          },
+          "layers": {
+            "L1": {
+              "bindings": {
+                "a": "key:2",
+                "b": "key:3",
+                "dpadDown": "key:S",
+                "dpadLeft": "key:A",
+                "dpadRight": "key:D",
+                "dpadUp": "key:F",
+                "l1": "none",
+                "l2": "none",
+                "r1": "none",
+                "r2": "none",
+                "select": "none",
+                "start": "none",
+                "x": "key:1",
+                "y": "key:4"
+              }
+            },
+            "R1": {
+              "bindings": {
+                "a": "key:2",
+                "b": "key:3",
+                "dpadDown": "key:X",
+                "dpadLeft": "key:Z",
+                "dpadRight": "key:C",
+                "dpadUp": "key:V",
+                "l1": "none",
+                "l2": "layer:L1",
+                "r1": "none",
+                "r2": "layer:R1",
+                "select": "none",
+                "start": "none",
+                "x": "key:1",
+                "y": "key:4"
+              }
+            }
+          },
+          "pointer": [
+            "touchpad",
+            "rightStick"
+          ],
+          "source": "Perfil de Riftway (basado en Steam Input)"
+        },
+        "mode": "keyboard"
+      },
+      "SuperRumble Launcher.exe": {
+        "mode": "desktop"
+      }
+    },
+    "schema": 1
+  },
+  "notes": "Usa DirectX 11 (la casilla \"DirectX 11 실행\" del launcher): con D3D12 se queda en los logos. winegstreamer está apagado solo para el launcher, cuya vista web se cae al cerrar con él; el cliente conserva los videos. Jugar abre el sitio la primera vez; después usa el último enlace dsropen que el sitio mandó. Pendiente: sesiones largas. Control: el launcher en modo escritorio y el juego en teclado y mouse (DSR no soporta control): stick izquierdo WASD, cruceta habilidades del Digimon 1 (Q W E R), L1 + cruceta las del Digimon 2 y R1 + cruceta las del Digimon 3, ✕ interactuar, □ recoger, touchpad y stick derecho como mouse."
 }

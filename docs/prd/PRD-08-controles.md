@@ -169,8 +169,10 @@ como las demás opciones.
    su modo y mapeo, sin datos del jugador ni de la botella); **Importar** acepta ese
    archivo (se combina por programa) o un `.vdf` de Steam para el programa elegido. CLI:
    `riftway controller <juego> --export/--import archivo.json`.
-   Falta: la sección `controller` de los perfiles, para que un juego traiga un mapeo.
-5. Capa 1 (remapeo de SDL) y la opción de PlayStation crudo.
+5. ✅ Sección `controller` de los perfiles: el de DSR (revisión 2) trae el launcher en
+   `desktop` y el cliente con el mapeo del jugador que lo probó (capas L1 y R1). Se
+   escribe en botellas sin `controller.json`; el editor ofrece "Usar el del perfil".
+6. Capa 1 (remapeo de SDL) y la opción de PlayStation crudo.
 
 ## Implementación (capa 2)
 

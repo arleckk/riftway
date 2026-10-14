@@ -31,6 +31,8 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
     /// A scheme the Play button starts by default with the last link the
     /// game's site sent (`dsropen`), instead of opening the site.
     public var playLink: String?
+    /// A controller setup (PRD-08) for bottles that have none of their own.
+    public var controller: ControllerLayout?
     public var notes: String?
 
     public struct Match: Codable, Sendable, Equatable {
@@ -93,7 +95,7 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case schema, id, name, revision, match, status, anticheat, tested, env, game, notes, registry
         case appDPI = "app_dpi", dllOverrides = "dll_overrides", programDllOverrides = "program_dll_overrides"
-        case dxmtConf = "dxmt_conf", playLink = "play_link"
+        case dxmtConf = "dxmt_conf", playLink = "play_link", controller
     }
 
     public init(id: String, name: String, match: Match, status: CompatibilityStatus) {
@@ -129,6 +131,7 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
         registry = try c.decodeIfPresent([String: [String: String]].self, forKey: .registry) ?? [:]
         dxmtConf = try c.decodeIfPresent([String: String].self, forKey: .dxmtConf) ?? [:]
         playLink = try c.decodeIfPresent(String.self, forKey: .playLink)
+        controller = try c.decodeIfPresent(ControllerLayout.self, forKey: .controller)
         notes = try c.decodeIfPresent(String.self, forKey: .notes)
     }
 
@@ -146,6 +149,7 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
         case unknownPatch(String)
         case verifiedWithoutEvidence
         case playLink(String)
+        case controllerLayer(program: String, layer: String)
 
         public var description: String {
             switch self {
@@ -160,13 +164,14 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
             case .unknownPatch(let name): "game.\(name) is not one of the runtime's patches"
             case .verifiedWithoutEvidence: "verified needs tested (date, macOS, hardware, runtime)"
             case .playLink(let scheme): "play_link \(scheme) is not a URL scheme"
+            case .controllerLayer(let program, let layer): "controller: \(program) holds layer \(layer), which it does not have"
             }
         }
     }
 
     static let knownKeys: Set<String> = ["schema", "id", "name", "revision", "match", "status", "anticheat", "tested", "env",
                                          "game", "app_dpi", "dll_overrides", "program_dll_overrides", "registry",
-                                         "dxmt_conf", "play_link", "notes"]
+                                         "dxmt_conf", "play_link", "controller", "notes"]
     static let knownMatchKeys: Set<String> = ["product", "company", "signer", "installer", "executables", "sha256"]
     public static let patches = ["WINEMAC_MOUSELOOK", "WINE_GAME_MODE"]
 
@@ -202,6 +207,12 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
         for name in game.keys where !Self.patches.contains(name) { throw Invalid.unknownPatch(name) }
         if status == .verified, tested == nil { throw Invalid.verifiedWithoutEvidence }
         if let playLink, !URLProtocolRegistration.isValidScheme(playLink) { throw Invalid.playLink(playLink) }
+        for (program, controls) in controller?.programs ?? [:] {
+            guard let set = controls.actionSet else { continue }
+            for output in ([set.base] + Array(set.layers.values)).flatMap(\.bindings.values) {
+                if case .holdLayer(let layer) = output, set.layers[layer] == nil { throw Invalid.controllerLayer(program: program, layer: layer) }
+            }
+        }
     }
 
     // MARK: What the profile does to a bottle

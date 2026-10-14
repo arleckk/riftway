@@ -60,6 +60,7 @@ Los perfiles viven en [`profiles/`](../../profiles/), un archivo por juego con n
 | `registry` | Valores de texto o `dword:XXXXXXXX`; solo `HKCU` y `HKLM/Software`, nunca servicios, drivers ni la clave de identidad de Riftway |
 | `dxmt_conf` | Líneas `clave = valor` de `C:\ProgramData\Riftway\dxmt.conf` |
 | `play_link` | Esquema con el que Jugar abre el último enlace que mandó el sitio, en vez del sitio |
+| `controller` | Configuración de control ([PRD-08](PRD-08-controles.md)): modo y mapeo por programa, el mismo formato que exporta el editor. Se escribe en la botella solo si no tiene una propia; se valida que cada capa que se mantiene exista |
 | `notes` | Texto para el jugador |
 
 Las opciones del jugador (modo diagnóstico, overrides propios) van encima de las del perfil

@@ -94,6 +94,17 @@ public struct ActionSet: Codable, Equatable, Sendable {
         self.source = source
     }
 
+    enum CodingKeys: String, CodingKey { case base, layers, pointer, source }
+
+    /// Only `base` is needed (profiles and files written by hand).
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        base = try c.decodeIfPresent(InputLayer.self, forKey: .base) ?? InputLayer()
+        layers = try c.decodeIfPresent([String: InputLayer].self, forKey: .layers) ?? [:]
+        pointer = try c.decodeIfPresent([PointerSource].self, forKey: .pointer) ?? []
+        source = try c.decodeIfPresent(String.self, forKey: .source)
+    }
+
     /// The binding for `button` with `layers` held, topmost first; a layer
     /// that does not mention the button leaves the one below.
     public func output(for button: ControllerButton, layers held: [String]) -> ControllerOutput {
@@ -185,6 +196,15 @@ public struct ControllerLayout: Codable, Equatable, Sendable {
     public init(programs: [String: ProgramControls] = [:], otherPrograms: InputMode = .native) {
         self.programs = programs
         self.otherPrograms = otherPrograms
+    }
+
+    enum CodingKeys: String, CodingKey { case schema, programs, otherPrograms }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schema = try c.decodeIfPresent(Int.self, forKey: .schema) ?? 1
+        programs = try c.decodeIfPresent([String: ProgramControls].self, forKey: .programs) ?? [:]
+        otherPrograms = try c.decodeIfPresent(InputMode.self, forKey: .otherPrograms) ?? .native
     }
 
     public func controls(for program: String) -> ProgramControls {

@@ -26,6 +26,12 @@ func profileJSON(_ extra: String = "", status: String = "playable", match: Strin
         #expect(throws: GameProfile.Invalid.verifiedWithoutEvidence) { try GameProfile.load(profileJSON(status: "verified")) }
         #expect(throws: GameProfile.Invalid.dllMode("d3d11=native")) { try GameProfile.load(profileJSON(#", "dll_overrides": {"d3d11": "native"}"#)) }
         #expect(throws: GameProfile.Invalid.unknownPatch("WINE_FAKE_GPU")) { try GameProfile.load(profileJSON(#", "game": {"WINE_FAKE_GPU": []}"#)) }
+        #expect(throws: GameProfile.Invalid.controllerLayer(program: "G.exe", layer: "L1")) {
+            try GameProfile.load(profileJSON(#", "controller": {"programs": {"G.exe": {"mode": "keyboard", "actionSet": {"base": {"bindings": {"l1": "layer:L1"}}, "layers": {}, "pointer": []}}}, "otherPrograms": "native"}"#))
+        }
+        #expect(throws: (any Error).self) {
+            try GameProfile.load(profileJSON(#", "controller": {"programs": {"G.exe": {"mode": "keyboard", "actionSet": {"base": {"bindings": {"a": "key:NOPE"}}, "layers": {}, "pointer": []}}}, "otherPrograms": "native"}"#))
+        }
         // Services, drivers and Riftway's own identity are not a profile's to change.
         for key in ["HKLM/System/CurrentControlSet/Services/x", "HKLM/Software/Riftway", "HKLM/Software/Wow6432Node/Riftway",
                     "HKCR/.exe", "HKCU/../HKLM/System", "HKCU"] {
@@ -178,7 +184,10 @@ func profileJSON(_ extra: String = "", status: String = "playable", match: Strin
             FileManager.default.createFile(atPath: bin.appendingPathComponent(tool).path, contents: Data("#!/bin/sh\nexit 0\n".utf8),
                                            attributes: [.posixPermissions: 0o755])
         }
-        let profile = try GameProfile.load(profileJSON(#", "revision": 4, "play_link": "gameopen", "dxmt_conf": {"a": "b"}"#))
+        let profile = try GameProfile.load(profileJSON(#"""
+            , "revision": 4, "play_link": "gameopen", "dxmt_conf": {"a": "b"},
+              "controller": {"programs": {"Launcher.exe": {"mode": "desktop"}}, "otherPrograms": "native"}
+            """#))
         let library = Library(home: home, profiles: ProfileStore(profiles: [profile]))
         let root = home.bottles.appendingPathComponent("g")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -197,6 +206,9 @@ func profileJSON(_ extra: String = "", status: String = "playable", match: Strin
         let written = root.appendingPathComponent("prefix/drive_c/ProgramData/Riftway")
         #expect(try String(contentsOf: written.appendingPathComponent("dxmt.conf"), encoding: .utf8).hasSuffix("a = b\n"))
         #expect(FileManager.default.fileExists(atPath: written.appendingPathComponent("settings.reg").path))
+        #expect(ControllerLayout.read(bottle: root)?.controls(for: "launcher.exe").mode == .desktop)
+        // The player's own setup is never replaced.
+        try ControllerLayout(otherPrograms: .off).write(bottle: root)
         #expect(try library.updateProfile(reread) == nil)
 
         // A newer revision is written again.
@@ -207,5 +219,6 @@ func profileJSON(_ extra: String = "", status: String = "playable", match: Strin
         let stale = try #require(library2.entry(at: root))
         #expect(stale.profileIsStale)
         #expect(try library2.updateProfile(stale)?.record.profileRevision == 5)
+        #expect(ControllerLayout.read(bottle: root)?.otherPrograms == .off)
     }
 }

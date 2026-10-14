@@ -449,6 +449,15 @@ struct ControllerEditorView: View {
         HStack(spacing: 10) {
             Button("Importar…", action: importFile)
             Button("Exportar…", action: exportFile)
+            if let profile = entry.profile, let fromProfile = profile.controller {
+                Button("Usar el del perfil") {
+                    layout = fromProfile
+                    program = fromProfile.programs.keys.sorted().first ?? Self.otherPrograms
+                    layer = nil
+                    notice = "Mapeo del perfil de \(profile.name). Guarda para aplicarlo."
+                }
+                .help("Reemplaza la configuración de este juego por la que trae su perfil")
+            }
             if editable {
                 Button("Restablecer") {
                     update { $0 = mode == .desktop ? .desktop : ActionSet() }
