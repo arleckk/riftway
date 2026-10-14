@@ -71,7 +71,7 @@ final class PlayingMenu: NSObject, NSMenuDelegate {
         }
         menu.addItem(.separator())
         if let pad = controllers.pads.first {
-            let battery = pad.battery.map { " · \(pad.charging ? "cargando" : "batería") \(Int(($0 * 100).rounded())) %" } ?? ""
+            let battery = pad.batteryText.map { " · " + $0.lowercased() } ?? ""
             let controller = NSMenuItem(title: pad.name + battery, action: nil, keyEquivalent: "")
             controller.image = NSImage(systemSymbolName: "gamecontroller", accessibilityDescription: nil)
             controller.isEnabled = false

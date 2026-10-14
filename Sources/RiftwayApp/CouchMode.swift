@@ -6,8 +6,9 @@ import SwiftUI
 
 /// The couch mode (PRD-04): Riftway full screen, played from the sofa with
 /// the controller alone. The selected game fills the background; its row of
-/// covers is below. The Home (PS) button opens and closes it while Riftway is
-/// in front, and so do View › Couch mode and Esc.
+/// covers is below. Settings opens it; the Home (PS) button opens and closes
+/// it while Riftway is in front, unless Settings gives that button back to
+/// macOS; ○ / B and Esc leave it.
 @MainActor @Observable
 final class CouchMode {
     enum Section: CaseIterable {
@@ -33,6 +34,14 @@ final class CouchMode {
     var selection = 0
     private(set) var optionsOpen = false
     private(set) var optionIndex = 0
+    /// Whether Home opens the couch mode (or, off, the Games app as usual).
+    var homeButtonOpens = UserDefaults.standard.object(forKey: CouchMode.homeButtonKey) as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(homeButtonOpens, forKey: Self.homeButtonKey)
+            claimHomeButtons()
+        }
+    }
+    private static let homeButtonKey = "CouchModeHomeButton"
 
     let library: LibraryModel
     let controllers: ControllerStatus
@@ -65,6 +74,11 @@ final class CouchMode {
     private func claimHomeButtons() {
         for controller in GCController.controllers() {
             guard let home = controller.extendedGamepad?.buttonHome else { continue }
+            guard homeButtonOpens else {
+                home.preferredSystemGestureState = .enabled
+                home.pressedChangedHandler = nil
+                continue
+            }
             home.preferredSystemGestureState = .disabled
             home.pressedChangedHandler = { [weak self] _, _, pressed in
                 guard pressed else { return }

@@ -93,7 +93,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showSettings(_ sender: Any?) {
         if settingsWindow == nil {
-            let controller = NSHostingController(rootView: SettingsView(updates: updates, library: library))
+            guard let couch else { return }
+            let controller = NSHostingController(rootView: SettingsView(updates: updates, library: library, couch: couch))
             let window = NSWindow(contentViewController: controller)
             window.title = "Ajustes"
             window.styleMask = [.titled, .closable]
@@ -103,11 +104,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         settingsWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate()
-    }
-
-    @objc func toggleCouchMode(_ sender: Any?) {
-        guard let couch else { return }
-        couch.isOpen ? couch.close() : couch.open()
     }
 
     @objc func checkForUpdates(_ sender: Any?) {
@@ -141,13 +137,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         file.addItem(withTitle: "Cerrar ventana", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         fileItem.submenu = file
         main.addItem(fileItem)
-
-        let viewItem = NSMenuItem()
-        let view = NSMenu(title: "Ver")
-        let couchItem = view.addItem(withTitle: "Modo sillón", action: #selector(toggleCouchMode(_:)), keyEquivalent: "f")
-        couchItem.keyEquivalentModifierMask = [.command, .shift]
-        viewItem.submenu = view
-        main.addItem(viewItem)
 
         let windowItem = NSMenuItem()
         let windows = NSMenu(title: "Ventana")
@@ -193,7 +182,10 @@ func renderLibrary(to output: String, installedBottle: String? = nil, page: Side
         job.phase = .result
         view = AnyView(InstallView(job: job, library: library))
     } else {
-        view = AnyView(LibraryView(model: AppModel(), library: library, updates: UpdateModel(), controllers: ControllerStatus(), item: page)
+        // The sidebar shows the controllers connected now, with their batteries.
+        let controllers = ControllerStatus()
+        controllers.start()
+        view = AnyView(LibraryView(model: AppModel(), library: library, updates: UpdateModel(), controllers: controllers, item: page)
             .frame(width: 1040, height: 680))
     }
     return snapshot(view, to: output)
@@ -276,7 +268,11 @@ if let index = arguments.firstIndex(of: "--render-controller"), arguments.count 
     })
 }
 if let index = arguments.firstIndex(of: "--render-settings"), arguments.count > index + 1 {
-    exit(MainActor.assumeIsolated { snapshot(AnyView(SettingsView(updates: UpdateModel(), library: LibraryModel())), to: arguments[index + 1]) })
+    exit(MainActor.assumeIsolated {
+        let library = LibraryModel()
+        let couch = CouchMode(library: library, controllers: ControllerStatus()) { _ in }
+        return snapshot(AnyView(SettingsView(updates: UpdateModel(), library: library, couch: couch)), to: arguments[index + 1])
+    })
 }
 if let index = arguments.firstIndex(of: "--render-updates"), arguments.count > index + 1 {
     // Checks $RIFTWAY_FEED_URL and draws the update sheet.

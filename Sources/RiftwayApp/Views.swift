@@ -131,10 +131,8 @@ private struct SidebarFooter: View {
                     Image(systemName: "gamecontroller.fill").foregroundStyle(Theme.cyan)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(pad.name).font(.caption.weight(.medium)).lineLimit(1)
-                        if let battery = pad.battery {
-                            Text("\(pad.charging ? "Cargando" : "Batería") \(Int((battery * 100).rounded())) %")
-                                .font(.caption2).foregroundStyle(.secondary)
-                        }
+                        Text(pad.batteryText ?? "Conectado")
+                            .font(.caption2).foregroundStyle(.secondary)
                     }
                 }
                 .padding(8)
@@ -730,6 +728,7 @@ struct AssociationOfferView: View {
 struct SettingsView: View {
     let updates: UpdateModel
     let library: LibraryModel
+    @Bindable var couch: CouchMode
     @State private var refresh = 0
 
     var body: some View {
@@ -742,6 +741,20 @@ struct SettingsView: View {
                         Task { await FileAssociation.makeRiftwayDefault(); refresh += 1 }
                     }
                 }
+            }
+            Section {
+                LabeledContent {
+                    Button("Abrir") { couch.open() }
+                } label: {
+                    Text("Modo sillón")
+                    Text("Riftway en pantalla completa, para jugar desde el sillón solo con el control.")
+                }
+                Toggle(isOn: $couch.homeButtonOpens) {
+                    Text("Abrir con el botón PS / Home")
+                    Text("Mientras Riftway está al frente. Apagado, el botón abre la app Juegos de macOS. Sal con ○ / B o Esc.")
+                }
+            } header: {
+                Text("Modo sillón")
             }
             UpdateSettings(updates: updates)
             UninstallSettings(library: library)
