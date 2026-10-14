@@ -229,6 +229,9 @@ final class LibraryModel {
     // MARK: Playing
 
     func play(_ entry: LibraryEntry, program: DiscoveredProgram? = nil) {
+        // From disk: the CLI may have changed it (what Play starts) since the
+        // last reload, and saving the stale copy below would undo that.
+        let entry = library.entry(at: entry.root) ?? entry
         do {
             switch try GameLauncher.action(for: entry, program: program) {
             case .openWebPage(let url):
