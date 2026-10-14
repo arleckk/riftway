@@ -1,0 +1,92 @@
+# Builds the Riftway runtime from scratch on a GitHub-hosted Mac, to compare it with a
+# build made elsewhere (docs/RUNTIME-BUILD.md, phase 2, item 6):
+#
+#   runtime/compare.py work/runtime/artifacts/<version> <downloaded runtime.json>
+#
+# The macos-26 arm64 image has the pinned Apple tools (runtime/sources.lock.json, apple):
+# Command Line Tools 26.6.0.0.1781586589 with MacOSX26.5.sdk, and Xcode 26.6 (17F113)
+# for DXMT's shaders. `runtime/build.py check` fails if the image changes them.
+name: Runtime reproducibility
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Runtime version to assemble (the same as the build to compare with)
+        required: true
+        default: rw-0.1.10-spike
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Disk space
+        run: |
+          df -h /
+          # Xcodes other than the pinned one: room for toolchains (5.5 GB) and the build (5 GB).
+          for app in /Applications/Xcode_*.app; do
+            case "$app" in /Applications/Xcode_26.6*.app) ;; *) [ -L "$app" ] || sudo rm -rf "$app" ;; esac
+          done
+          df -h /
+
+      - name: Rosetta and the Metal Toolchain
+        run: |
+          /usr/bin/arch -x86_64 /usr/bin/true || sudo softwareupdate --install-rosetta --agree-to-license
+          export DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer
+          xcodebuild -version
+          xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
+          xcrun metal --version
+
+      - name: Downloads cache
+        uses: actions/cache@v4
+        with:
+          path: work/runtime/downloads
+          key: runtime-downloads-${{ hashFiles('runtime/sources.lock.json', 'runtime/media.py', 'runtime/assemble.py') }}
+
+      - name: Toolchains
+        run: python3 runtime/build.py tools
+
+      - name: Build
+        run: |
+          for step in fetch deps wine dxmt media; do
+            echo "::group::$step"
+            python3 runtime/build.py "$step" || python3 runtime/build.py "$step"
+            echo "::endgroup::"
+          done
+
+      - name: Assemble
+        run: python3 runtime/assemble.py --version "${{ inputs.version }}"
+
+      - name: Smoke test
+        # The runner's paravirtualized GPU may not run DXMT; the comparison does not need it.
+        continue-on-error: true
+        run: python3 runtime/build.py smoke "${{ inputs.version }}"
+
+      - name: Manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.version }}-manifest
+          if-no-files-found: ignore
+          path: |
+            work/runtime/artifacts/${{ inputs.version }}/runtime.json
+            work/runtime/artifacts/${{ inputs.version }}.tar.json
+            work/runtime/phase-2/*-proof.json
+            work/runtime/phase-2/build-logs/
+
+      - name: Runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.version }}
+          retention-days: 7
+          path: work/runtime/artifacts/${{ inputs.version }}.tar.gz

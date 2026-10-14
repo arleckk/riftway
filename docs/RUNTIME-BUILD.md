@@ -105,6 +105,27 @@ tengan alguna. `rw-0.1.4-spike` se desinstaló; ninguna botella lo usaba.
    Pendiente: comparar con un build en otra Mac (CI). Un fallo del linker bajo Rosetta
    (segfault al enlazar `gst-device-monitor`, una herramienta que no se distribuye) se fue al
    reintentar; `build.py` no reintenta solo.
+
+   **Preparación para CI (2026-10-14).** Para que otra Mac dé los mismos bytes, todo lo que
+   viene de Apple queda fijado en el lock (`apple`) y `build.py check` lo revisa:
+   - Command Line Tools 26.6.0.0.1781586589 con `MacOSX26.5.sdk`: Wine, media, las
+     dependencias nativas y ahora también DXMT. **DXMT tomaba el Xcode seleccionado**
+     (`xcrun --show-sdk-path`): `winemetal.so` se enlazaba contra `MacOSX27.0.sdk` de Xcode 27
+     y su compilador nativo era el de Xcode, no el de las CLT. `runtime/recipe/dxmt.py` fija
+     `DEVELOPER_DIR` y `SDKROOT` como `wine.py`, e incluye el toolchain en su firma de
+     configuración.
+   - Xcode 26.6 (17F113), solo para los shaders de DXMT (`metal`, `metallib`): el
+     `portable_metal.py` de Recall corre detrás de un envoltorio que le pone ese
+     `DEVELOPER_DIR`. Puede convivir con otro Xcode (`/Applications/Xcode_26.6.app`).
+   - `media.py` usa el `pkgconf` 2.5.1 que compilan las dependencias nativas, no el de
+     Homebrew. Ninguna receta ejecuta algo de Homebrew.
+
+   La imagen `macos-26` arm64 de GitHub Actions trae exactamente esas CLT y ese Xcode (la
+   imagen `xcode-27` tiene Xcode 27 pero CLT 27). `.github/workflows/runtime-reproducibility.yml`
+   (manual, `workflow_dispatch`) compila desde cero, ensambla la versión pedida y sube su
+   `runtime.json`, las pruebas de build y el `.tar.gz`; `runtime/compare.py A B` compara dos
+   manifiestos archivo por archivo (entre `rw-0.1.8` y `rw-0.1.9` solo cambian los dos
+   `winegstreamer.dll`, el parche de esa versión).
 7. ✅ Revisión de licencia del código de Soju (2026-10-14, ver "Licencia del código de Soju"):
    se quita `ncrypt-persisted-keys.patch` (GPL-3.0) desde `rw-0.1.3-spike`.
 8. ✅ Decodificadores de video y audio (`runtime/build.py media`, desde `rw-0.1.2-spike`):

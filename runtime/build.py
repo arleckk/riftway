@@ -136,10 +136,20 @@ def check(_):
     need((TOOLS / chains['llvm-15']['directory'] / 'bin/clang').exists(), 'LLVM 15.0.7 x86_64')
     need((TOOLS / 'bison/bin/bison').exists(), 'bison 3.8.2')
     need((TOOLS / 'python/bin/meson').exists() and (TOOLS / 'python/bin/ninja').exists(), 'meson + ninja (venv)')
-    need(CLT_SDK.is_dir(), 'Command Line Tools con MacOSX26.5.sdk')
+    apple = LOCK['apple']
+    need(CLT_SDK.is_dir() and str(CLT_SDK) == apple['sdk'], 'Command Line Tools con MacOSX26.5.sdk')
+    clt = subprocess.run(['/usr/sbin/pkgutil', '--pkg-info=com.apple.pkg.CLTools_Executables'],
+                         capture_output=True, text=True).stdout
+    need(f"version: {apple['command_line_tools']}" in clt, f"Command Line Tools {apple['command_line_tools']}")
     need(subprocess.run(['/usr/bin/arch', '-x86_64', '/usr/bin/true']).returncode == 0, 'Rosetta 2')
-    metal = subprocess.run(['xcrun', 'metal', '--version'], capture_output=True, text=True)
-    need(metal.returncode == 0, 'Metal Toolchain (xcodebuild -downloadComponent MetalToolchain)')
+    pinned = apple['metal']
+    metal_env = {k: v for k, v in os.environ.items() if k != 'SDKROOT'} | {'DEVELOPER_DIR': pinned['developer_dir']}
+    xcode = subprocess.run(['/usr/bin/xcodebuild', '-version'], env=metal_env, capture_output=True, text=True)
+    need(xcode.returncode == 0 and f"Build version {pinned['xcode_build']}" in xcode.stdout,
+         f"Xcode {pinned['xcode']} ({pinned['xcode_build']}) en {pinned['developer_dir']}, para los shaders de DXMT")
+    metal = subprocess.run(['/usr/bin/xcrun', 'metal', '--version'], env=metal_env, capture_output=True, text=True)
+    need(metal.returncode == 0, f"Metal Toolchain de ese Xcode (DEVELOPER_DIR={pinned['developer_dir']} "
+                                'xcodebuild -downloadComponent MetalToolchain)')
     need((RECALL / '.git').exists(), f'Recall en {LOCK["recall"]["commit"][:8]}')
     need(' ' not in str(WORK), 'workspace sin espacios')
     if problems:

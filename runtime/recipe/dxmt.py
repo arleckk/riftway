@@ -9,7 +9,10 @@ github.com/AsherJN/recall, at the commit in runtime/sources.lock.json). Differen
     nvngx.dll to sign (no signing certificate);
   - the source is reset to the pinned commit before patching, so a tree patched
     with another set is never built;
-  - only DXMT's modules are installed (the diagnostic programs stay out).
+  - only DXMT's modules are installed (the diagnostic programs stay out);
+  - it builds and links with the Command Line Tools and their SDK, like Wine, and its
+    shaders compile with the Metal toolchain of the Xcode pinned in the lock (`apple`),
+    instead of whichever Xcode is selected.
 
   runtime/recipe/dxmt.py --workspace work/runtime/phase-2 --toolchains work/runtime/toolchains [--jobs N]
 """
@@ -35,6 +38,40 @@ PATCHES = [
     ('dxmt-portable-metal.patch', '3b9d6a3248c62e8eb3b623fbd3f5c4939d6973dfa366e827b7d25e814428745d'),
 ]
 WRAPPER_SHA256 = 'd6666237dc9827c9c68a94ca00d1d4c528cccab75b4655132a1339e5d3155505'
+
+
+METAL_WRAPPER = """#!/usr/bin/env python3
+# Riftway: Recall's portable_metal.py (next to this file) with the Metal toolchain of the
+# Xcode pinned in runtime/sources.lock.json; the rest of DXMT uses the Command Line Tools.
+import os
+import runpy
+import sys
+from pathlib import Path
+
+os.environ['DEVELOPER_DIR'] = os.environ['RIFTWAY_METAL_DEVELOPER_DIR']
+os.environ.pop('SDKROOT', None)
+recall = Path(__file__).with_name('portable_metal_recall.py')
+sys.argv[0] = str(recall)
+runpy.run_path(str(recall), run_name='__main__')
+"""
+
+
+def metal_toolchain(pinned):
+    """The pinned Xcode's version line and its Metal compiler's, or a clear failure."""
+    env = dict(os.environ, DEVELOPER_DIR=pinned['developer_dir'])
+    env.pop('SDKROOT', None)
+    try:
+        xcode = subprocess.run(['/usr/bin/xcodebuild', '-version'], env=env, capture_output=True, text=True)
+    except OSError:
+        xcode = None
+    if not xcode or xcode.returncode or ('Build version ' + pinned['xcode_build']) not in xcode.stdout:
+        raise SystemExit(f"DXMT's shaders need Xcode {pinned['xcode']} ({pinned['xcode_build']}) at "
+                         f"{pinned['developer_dir']} (runtime/sources.lock.json, apple.metal)")
+    metal = subprocess.run(['/usr/bin/xcrun', 'metal', '--version'], env=env, capture_output=True, text=True)
+    if metal.returncode:
+        raise SystemExit(f"Xcode {pinned['xcode']} has no Metal Toolchain: DEVELOPER_DIR={pinned['developer_dir']} "
+                         'xcodebuild -downloadComponent MetalToolchain')
+    return f"Xcode {pinned['xcode']} ({pinned['xcode_build']}); " + metal.stdout.splitlines()[0]
 
 
 def sha(path):
@@ -67,22 +104,34 @@ def build(work, tools, jobs):
             raise ValueError('Recall patch changed: ' + name)
         run('git', 'apply', patch, cwd=source)
         applied[name] = sha(patch)
-    wrapper = source / 'portable_metal.py'
+    recall_wrapper = source / 'portable_metal_recall.py'
     if sha(RECALL / 'scripts/portable_metal.py') != WRAPPER_SHA256:
         raise ValueError('Recall script changed: portable_metal.py')
-    shutil.copy2(RECALL / 'scripts/portable_metal.py', wrapper)
+    shutil.copy2(RECALL / 'scripts/portable_metal.py', recall_wrapper)
+    # DXMT's meson runs portable_metal.py for its shaders: Recall's, with the pinned Xcode.
+    wrapper = source / 'portable_metal.py'
+    wrapper.write_text(METAL_WRAPPER)
     wrapper.chmod(0o755)
 
+    lock = json.loads((ROOT / 'runtime/sources.lock.json').read_text())
+    apple = lock['apple']
+    metal_xcode = metal_toolchain(apple['metal'])
     env = os.environ.copy()
     env.pop('DESTDIR', None)
     # PE modules carry the pinned date instead of the build's.
-    env['SOURCE_DATE_EPOCH'] = str(json.loads((ROOT / 'runtime/sources.lock.json').read_text())['source_date_epoch']['value'])
+    env['SOURCE_DATE_EPOCH'] = str(lock['source_date_epoch']['value'])
+    # The Command Line Tools and their SDK, as Wine; only the shaders use the pinned Xcode.
+    env['DEVELOPER_DIR'] = '/Library/Developer/CommandLineTools'
+    env['SDKROOT'] = apple['sdk']
+    env['RIFTWAY_METAL_DEVELOPER_DIR'] = apple['metal']['developer_dir']
     env['PATH'] = ':'.join([str(tools / 'llvm-mingw-20251216-ucrt-macos-universal/bin'), str(tools / 'python/bin'),
                             '/usr/bin', '/bin', '/usr/sbin', '/sbin'])
     meson = tools / 'python/bin/meson'
-    # meson does not relink when only the date changes: a tree built with another starts over.
-    stamp = builddir / '.riftway-source-date-epoch'
-    if builddir.exists() and not (stamp.exists() and stamp.read_text() == env['SOURCE_DATE_EPOCH']):
+    # meson neither relinks when only the date changes nor reconfigures for another
+    # toolchain: a tree built with others starts over.
+    signature = '\n'.join([env['SOURCE_DATE_EPOCH'], env['DEVELOPER_DIR'], env['SDKROOT'], metal_xcode]) + '\n'
+    stamp = builddir / '.riftway-configuration'
+    if builddir.exists() and not (stamp.exists() and stamp.read_text() == signature):
         shutil.rmtree(builddir)
     setup = [meson, 'setup', builddir, source, '--cross-file', source / 'build-win64.txt', '--buildtype=release',
              '--prefix', install, '--strip', '-Dnative_llvm_path=' + str(tools / 'clang+llvm-15.0.7-x86_64-apple-darwin21.0'),
@@ -91,7 +140,7 @@ def build(work, tools, jobs):
     if (builddir / 'meson-private/coredata.dat').exists():
         setup.append('--reconfigure')
     run(*setup, env=env)
-    stamp.write_text(env['SOURCE_DATE_EPOCH'])
+    stamp.write_text(signature)
     run(meson, 'compile', '-C', builddir, '-j', jobs, env=env)
     # A fresh install, so modules of an earlier build (NVAPI, NGX) never linger.
     shutil.rmtree(install, ignore_errors=True)
@@ -102,7 +151,8 @@ def build(work, tools, jobs):
     (work / 'dxmt-build-proof.json').write_text(json.dumps({
         'recipe': 'runtime/recipe/dxmt.py', 'derived_from': 'Recall scripts/build_portable_dxmt.py',
         'repository': REPOSITORY, 'base': BASE, 'headers': HEADERS, 'patches': applied,
-        'portable_metal_wrapper_sha256': sha(wrapper), 'metalfx': False, 'nvapi': False, 'nvngx': False,
+        'portable_metal_wrapper_sha256': sha(recall_wrapper), 'metal_toolchain': metal_xcode,
+        'developer_dir': env['DEVELOPER_DIR'], 'sdk': env['SDKROOT'], 'metalfx': False, 'nvapi': False, 'nvngx': False,
         'files': files}, indent=2) + '\n')
     print('DXMT build complete', flush=True)
 

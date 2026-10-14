@@ -82,9 +82,10 @@ def environment():
         'CC': '/usr/bin/clang -arch x86_64', 'CXX': '/usr/bin/clang++ -arch x86_64',
         'OBJC': '/usr/bin/clang -arch x86_64', 'OBJCXX': '/usr/bin/clang++ -arch x86_64',
         'CFLAGS': FLAGS, 'CXXFLAGS': FLAGS, 'OBJCFLAGS': FLAGS, 'OBJCXXFLAGS': FLAGS,
-        # Only our own .pc files: nothing from Homebrew (arm64) may be found.
+        # Only our own .pc files, through the pkgconf the native dependencies build (2.5.1):
+        # nothing from Homebrew may be found or run.
         'PKG_CONFIG_LIBDIR': str(PHASE2 / 'media-pkgconfig'),
-        'PKG_CONFIG': '/opt/homebrew/bin/pkg-config',
+        'PKG_CONFIG': str(PHASE2 / 'clean-deps/bin/pkgconf'),
     }
     return env
 
@@ -201,11 +202,13 @@ def gstreamer(tree, env, jobs):
     log = PHASE2 / 'build-logs/media.log'
     log.parent.mkdir(exist_ok=True)
     configured = BUILD / '.riftway-options'
-    if BUILD.exists() and not (configured.exists() and configured.read_text() == '\n'.join(OPTIONS)):
+    # The options and the tools meson found (pkg-config): a tree configured otherwise starts over.
+    signature = '\n'.join([*OPTIONS, env['PKG_CONFIG']])
+    if BUILD.exists() and not (configured.exists() and configured.read_text() == signature):
         shutil.rmtree(BUILD)
     if not (BUILD / 'build.ninja').exists():
         run(x86(PY86 / 'bin/meson', 'setup', BUILD, tree, *OPTIONS), log=log, env=env)
-        configured.write_text('\n'.join(OPTIONS))
+        configured.write_text(signature)
     run(x86(PY86 / 'bin/ninja', '-C', BUILD, '-j', str(jobs)), log=log, env=env)
     if STAGE.exists():
         shutil.rmtree(STAGE)
