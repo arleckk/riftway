@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "digimon-super-rumble",
   "name": "Digimon Super Rumble",
-  "revision": 4,
+  "revision": 5,
   "match": {
     "product": [
       "Digimon SuperRumble",
@@ -34,6 +34,11 @@
     "hardware": "Mac15,10 (Apple M3 Max)",
     "runtime": "rw-0.1.2-spike",
     "online": true
+  },
+  "game": {
+    "WINE_GAME_MODE": [
+      "Client-Win64-Shipping.exe"
+    ]
   },
   "app_dpi": {
     "dpi": 192,
@@ -148,5 +153,5 @@
     },
     "schema": 1
   },
-  "notes": "Usa DirectX 11 (la casilla \"DirectX 11 실행\" del launcher): con D3D12 se queda en los logos. winegstreamer está apagado solo para el launcher, cuya vista web se cae al cerrar con él; el cliente conserva los videos. Jugar abre el sitio la primera vez; después usa el último enlace dsropen que el sitio mandó. Pendiente: sesiones largas. Control (DSR no soporta control; el launcher va en modo escritorio y el juego en teclado y mouse, con las teclas por defecto del juego): stick izquierdo WASD; stick derecho y touchpad, mouse; cruceta, habilidades del Digimon 1 (Q W E R); ✕ interactuar (F), ○ Esc, □ recoger (G), △ saltar / Slow Mode (Espacio); L2/R2 clic derecho/izquierdo; L3 Auto Run / vista de cámara (`); R3 LAlt (modo de movimiento / barras de HP); Options mapa (B); touchpad izquierdo Tab (chat / info del enemigo), derecho LCtrl (velocidad de batalla). L1 + cruceta, Digimon 2 (A S D F); L1 + □✕○△, 1-4 (objetivos y ranuras rápidas). R1 + cruceta, Digimon 3 (Z X C V); R1 + □✕○, Charge Data F1-F3; R1 + △, ranura 5. Share sostenido abre menús: cruceta Inventario/Colección/DigiPass/DigiTalk, □ Logros, ✕ Auto Skill Settings, ○ Evento, △ Costume Box, L1 Remote Exchange, R1 ocultar UI, L2 Codex, R2 DigiIsland."
+  "notes": "Usa DirectX 11 (la casilla \"DirectX 11 실행\" del launcher): con D3D12 se queda en los logos. winegstreamer está apagado solo para el launcher, cuya vista web se cae al cerrar con él; el cliente conserva los videos. Jugar abre el sitio la primera vez; después usa el último enlace dsropen que el sitio mandó. El cliente arranca desde su propio bundle para que macOS active Game Mode en pantalla completa. Pendiente: sesiones largas. Control (DSR no soporta control; el launcher va en modo escritorio y el juego en teclado y mouse, con las teclas por defecto del juego): stick izquierdo WASD; stick derecho y touchpad, mouse; cruceta, habilidades del Digimon 1 (Q W E R); ✕ interactuar (F), ○ Esc, □ recoger (G), △ saltar / Slow Mode (Espacio); L2/R2 clic derecho/izquierdo; L3 Auto Run / vista de cámara (`); R3 LAlt (modo de movimiento / barras de HP); Options mapa (B); touchpad izquierdo Tab (chat / info del enemigo), derecho LCtrl (velocidad de batalla). L1 + cruceta, Digimon 2 (A S D F); L1 + □✕○△, 1-4 (objetivos y ranuras rápidas). R1 + cruceta, Digimon 3 (Z X C V); R1 + □✕○, Charge Data F1-F3; R1 + △, ranura 5. Share sostenido abre menús: cruceta Inventario/Colección/DigiPass/DigiTalk, □ Logros, ✕ Auto Skill Settings, ○ Evento, △ Costume Box, L1 Remote Exchange, R1 ocultar UI, L2 Codex, R2 DigiIsland."
 }

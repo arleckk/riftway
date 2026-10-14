@@ -158,6 +158,10 @@ public enum GameLauncher {
         defer { if let icon { try? FileManager.default.removeItem(at: icon) } }
         let app = try ShimBundle.build(config: config, shimBinary: shimBinary, icon: icon, in: home.bridges)
         try ShimBundle.register(app)
+        // Game Mode's bundle, with the bridge's icon.
+        let appIcon = app.appendingPathComponent("Contents/Resources/AppIcon.icns")
+        try GameModeApp.ensure(bottleRoot: entry.root, runtime: setup.runtime, options: setup.effectiveOptions, name: entry.game.name,
+                               icon: FileManager.default.fileExists(atPath: appIcon.path) ? appIcon : nil)
         return app
     }
 }

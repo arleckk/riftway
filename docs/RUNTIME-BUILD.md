@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Estado | **Fases 0 y 1 completadas el 2026-10-13** (ver "Resultados de la fase 1"); fase 2 en curso: receta propia en `runtime/recipe/` desde `rw-0.1.4-spike` |
+| Estado | **Fases 0 y 1 completadas el 2026-10-13** (ver "Resultados de la fase 1"); fase 2 en curso: receta propia en `runtime/recipe/`; `rw-0.1.5-spike` es el primero con todos los parches |
 | Hito | M2 ([PRD-02](prd/PRD-02-runtime-y-botellas.md)) |
 | Referencia | Recall (`github.com/AsherJN/recall`), clon de solo lectura revisado el 2026-10-13 |
 
@@ -58,6 +58,17 @@ por hash. Las dependencias nativas siguen saliendo del script de Recall
 (`build_portable_dependencies.py`, que todavía mapea sus rutas a `/build/overwatch-2-mac`;
 ningún binario del runtime lleva esa cadena).
 
+**Incidente: parches que no se aplicaron (2026-10-14).** `work/` vive dentro del repositorio
+de Riftway, y `git apply` corrido ahí toma las rutas del parche desde la raíz de ese
+repositorio y **se salta en silencio** todo lo que cae fuera del directorio actual. En la
+fase 1 el proyecto todavía no era un repositorio y todo se aplicó; después, no:
+`rw-0.1.4-spike` salió sin los parches de ntdll, win32u, wineserver y la activación de
+winemac (y `rw-0.1.2`/`rw-0.1.3` ya venían sin `wine-winemac-activation.patch`). La prueba
+de humo no lo detecta. Arreglo: `runtime/recipe/wine.py` corre `git apply` con
+`GIT_CEILING_DIRECTORIES` y revisa una cadena de cada parche en el árbol, y
+`runtime/assemble.py` (`PATCH_MARKERS`) se niega a ensamblar un runtime cuyos binarios no
+tengan alguna. `rw-0.1.4-spike` se desinstaló; ninguna botella lo usaba.
+
 1. ✅ Sin `Libraries.tar.gz` de Whisky: Wine enlaza GnuTLS, inotify y SDL2 de `clean-deps` y
    FreeType de su propio build (`freetype-install`), las mismas librerías que se distribuyen.
    Probado borrando la descarga, `deps/` y el árbol extraído y recompilando.
@@ -65,7 +76,11 @@ ningún binario del runtime lleva esa cadena).
    `-Denable_nvapi=false -Denable_nvngx=false`, sin certificado y sin instalar los programas
    de diagnóstico. El runtime ya no trae `nvapi64.dll` ni `nvngx.dll`; el `d3d12.dll` que
    queda es el de Wine (vkd3d), que Riftway apaga en cada botella.
-3. Parche `WINE_GAME_MODE_APP` y bundle genérico de Game Mode.
+3. ✅ Game Mode (`rw-0.1.5-spike`): parche propio `runtime/patches/wine-game-mode-app.patch`
+   (`WINE_GAME_MODE_APP`) y un bundle **por juego** en su botella (opción B del paso 8,
+   `GameModeApp` en RiftwayCore). Probado: con `--game-mode PING.EXE`, `ping.exe` corre desde
+   `<botella>/GameMode/Game.app/Contents/MacOS/wine`; sin él, desde el loader. Falta ver a
+   macOS activar Game Mode con un juego en pantalla completa.
 4. Decidir la convivencia DXMT/wined3d para D3D11 de 64 bits (sección 4.3).
 5. ✅ Prefix-map `/build/riftway` en Wine, FreeType, DXMT y winegstreamer.
 6. Dos compilaciones limpias con el mismo manifiesto (reproducibilidad).
@@ -272,9 +287,15 @@ mismo contrato) que lea un `sources.lock.json` y un `patches/series` propios.
     `<dll_dir>/game-mode/<nombre>.app`. El runtime trae un bundle genérico
     `lib/wine/game-mode/Riftway Game.app` (id `com.riftway.game`, provisional) firmado con
     Developer ID. Todos los juegos comparten identidad (permisos de red local y micrófono).
-  - **B (spike):** generar `Bottles/<id>/GameMode/<Juego>.app` por botella en la Mac del
-    usuario y firmarlo *ad hoc* con los mismos entitlements. **[sin verificar]** que macOS
-    active Game Mode y respete los entitlements con firma ad hoc bajo hardened runtime.
+  - **B (elegida, 2026-10-14):** `Bottles/<id>/GameMode/Game.app` por botella, hecho en la
+    Mac del usuario y firmado *ad hoc* con los entitlements del loader y hardened runtime
+    (`GameModeApp`, derivado de `game_mode_app.py`). Lleva el nombre y el ícono del juego (el
+    del puente), id `com.riftway.game.<botella>` (permisos de red local y micrófono por
+    juego) y un `LC_UUID` propio. Se hace al construir el puente y solo se rehace si cambia
+    el loader del runtime o el nombre: cada firma ad hoc nueva haría que macOS volviera a
+    pedir los permisos. `WINE_GAME_MODE_APP` solo se pasa si el bundle es del runtime
+    actual. Hoy todo el runtime se firma ad hoc, así que no se pierde nada frente a la A.
+    **[sin verificar]** que macOS active Game Mode con esa firma.
   - Cambiar `IDENTIFIER`, `BUNDLE`, `CFBundleName` y los textos que mencionan Overwatch.
 
 ### Paso 9. Firma (hardened runtime + entitlements)

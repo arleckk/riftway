@@ -37,6 +37,16 @@ TOOLS = WORK / 'toolchains'
 MINGW = TOOLS / 'llvm-mingw-20251216-ucrt-macos-universal'
 SOJU = '3a350b32bf906dd2a509b18c642a5a2676de022a'
 MEDIA = PHASE2 / 'media-stage/riftway-media'
+# A string each Wine patch adds to a module (runtime/recipe/wine.py, APPLIED).
+PATCH_MARKERS = [
+    ('lib/wine/x86_64-unix/winemac.so', 'WINE_CUSTOM_FRAME'),          # wine-v1-canvas
+    ('lib/wine/x86_64-unix/winemac.so', 'WINEMAC_MOUSELOOK_RAW'),      # wine-mouselook
+    ('bin/wineserver', 'WINESERVER_REGISTRY_LOG'),                     # wine-server-registry-save
+    ('lib/wine/x86_64-unix/ntdll.so', 'WINE_SYSCALL_LOG'),             # wine-ntdll-syscall-log
+    ('lib/wine/x86_64-unix/win32u.so', 'WINE_APP_DPI'),                # wine-win32u-display-log
+    ('lib/wine/x86_64-unix/winemac.so', 'WINEMAC_SCREEN_READBACK'),    # wine-winemac-activation
+    ('lib/wine/x86_64-unix/ntdll.so', 'WINE_GAME_MODE_APP'),           # wine-game-mode-app (Riftway)
+]
 PROOFS = ['wine-build-proof.json', 'dxmt-build-proof.json', 'native-build-proof.json', 'media-build-proof.json']
 MONO_SOURCE_SHA = '128e335396689e466dff5e1aa0770a714dbe3d16397fc4ddbb8a80999c67323b'
 MONO_SOURCE_URL = 'https://github.com/wine-mono/wine-mono/releases/download/wine-mono-10.4.1/wine-mono-10.4.1-src.tar.xz'
@@ -209,6 +219,12 @@ def assemble(version, identity):
     copy(media_src / 'glib/LICENSES/LGPL-2.1-or-later.txt', licenses / 'glib/LGPL-2.1-or-later.txt')
     copy(media_src / 'pcre2-10.42/LICENCE', licenses / 'pcre2/LICENCE')
     copy(media_src / 'proxy-libintl/COPYING', licenses / 'proxy-libintl/COPYING')
+
+    # Every Wine patch is in the binaries (a patch that silently did not apply once
+    # shipped a runtime without it, and the smoke test cannot tell).
+    for module, marker in PATCH_MARKERS:
+        if marker.encode() not in (dest / module).read_bytes():
+            raise SystemExit(f'{module} lacks {marker}: a Wine patch is missing (runtime/recipe/wine.py)')
 
     # Native dependency closure: what the runtime links, plus four libraries
     # Wine dlopens (GnuTLS, FreeType, MoltenVK, SDL2 for controllers).

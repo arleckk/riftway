@@ -143,7 +143,13 @@ public enum RuntimeEnvironment {
         ]
         env["WINEDLLOVERRIDES"] = dllOverrides(baseDLLOverrides.merging(options.dllOverrides) { $1 })
         if !options.mouselook.isEmpty { env["WINEMAC_MOUSELOOK"] = options.mouselook.joined(separator: ";") }
-        if !options.gameMode.isEmpty { env["WINE_GAME_MODE"] = options.gameMode.joined(separator: ",") }
+        if !options.gameMode.isEmpty {
+            env["WINE_GAME_MODE"] = options.gameMode.joined(separator: ",")
+            // The game's own bundle, when it was made from this runtime's loader.
+            if GameModeApp.isCurrent(bottleRoot: bottleRoot, runtime: runtime) {
+                env["WINE_GAME_MODE_APP"] = GameModeApp.executable(bottleRoot: bottleRoot).path
+            }
+        }
         if let dpi = options.appDPI, !dpi.programs.isEmpty {
             env["WINE_APP_DPI"] = "\(dpi.dpi):" + dpi.programs.joined(separator: ";")
         }

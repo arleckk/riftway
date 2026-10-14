@@ -1,0 +1,35 @@
+Start the programs in WINE_GAME_MODE from the bundle WINE_GAME_MODE_APP names.
+
+Recall's ntdll patch starts them from <dll_dir>/game-mode/<name>.app, inside
+the runtime. Riftway's runtime is verified by hash and never changes, so each
+game's bundle (its name, icon and identity) is made in the game's bottle and
+WINE_GAME_MODE_APP points at its executable. Without the variable nothing changes.
+
+Riftway, offered under LGPL-2.1-or-later like Wine.
+
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -661,7 +661,7 @@
+  * tries argv[0] after its own path). Any other program, or a missing bundle, starts as before. */
+ static void game_mode_exec( char **argv, const char *image_path )
+ {
+-    const char *list = getenv( "WINE_GAME_MODE" ), *name = image_path, *p, *end;
++    const char *list = getenv( "WINE_GAME_MODE" ), *name = image_path, *p, *end, *app;
+     size_t len;
+     char *path;
+ 
+@@ -674,6 +674,14 @@
+         if (!(end = strchr( p, ',' ))) end = p + strlen( p );
+         if (end - p == len && len && !strncasecmp( p, name, len )) break;
+         if (!*end) return;
++    }
++    /* Riftway: WINE_GAME_MODE_APP is the executable of the game's own bundle, which
++     * lives with the game's bottle (the runtime is verified and never changes); it
++     * takes the place of <dll_dir>/game-mode/<name>.app. A missing one starts as before. */
++    if ((app = getenv( "WINE_GAME_MODE_APP" )) && *app)
++    {
++        if (!access( app, X_OK )) execv( app, argv );
++        return;
+     }
+     if (len > 4 && !strcasecmp( name + len - 4, ".exe" )) len -= 4;
+     if (asprintf( &path, "%s/game-mode/%.*s.app/Contents/MacOS/wine", dll_dir, (int)len, name ) < 0) return;

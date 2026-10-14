@@ -53,6 +53,23 @@ PATCHES = [
     ('wine-win32u-display-log.patch', '2387fa06d76891b7b5981473bb06b3b939e2c7569f79b6e3a7cbf12c21297568'),
     ('wine-winemac-activation.patch', '5cce039910a420a16e7d9f8907e17206b1413c6cc4092248548d3d6b29f1138d'),
 ]
+# Riftway's own Wine patches (runtime/patches, LGPL-2.1+ like Wine), after Recall's.
+RIFTWAY_PATCHES = [
+    # WINE_GAME_MODE_APP: Game Mode from the game's own bundle, in its bottle.
+    ('wine-game-mode-app.patch', '46e097629cfa2063fc6d8d2dd0b6a91ce821b13b6d7606f17c4769c7b5a83bbb'),
+]
+# A string each patch adds, checked in the patched tree: a patch that silently did not
+# apply fails the build instead of shipping without it.
+APPLIED = {
+    'wine-v1-canvas.patch': ('dlls/winemac.drv/window.c', 'WINE_CUSTOM_FRAME'),
+    'wine-mouselook.patch': ('dlls/winemac.drv/cocoa_app.m', 'WINEMAC_MOUSELOOK_RAW'),
+    'wine-portable-directory-boolean.patch': ('dlls/ntdll/unix/sync.c', 'restart_byte'),
+    'wine-server-registry-save.patch': ('server/registry.c', 'WINESERVER_REGISTRY_LOG'),
+    'wine-ntdll-syscall-log.patch': ('dlls/ntdll/unix/loader.c', 'game_mode_exec'),
+    'wine-win32u-display-log.patch': ('dlls/win32u/sysparams.c', 'WINE_APP_DPI'),
+    'wine-winemac-activation.patch': ('dlls/winemac.drv/gdi.c', 'WINEMAC_SCREEN_READBACK'),
+    'wine-game-mode-app.patch': ('dlls/ntdll/unix/loader.c', 'WINE_GAME_MODE_APP'),
+}
 BUILD_PATH = '/build/riftway'
 CONFIGURATION = 'riftway-wine-1'
 
@@ -108,19 +125,31 @@ def patched_wine(work):
         if sha(patch) != expected:
             raise RuntimeError('Recall patch changed: ' + name)
         patches.append(patch)
+    for name, expected in RIFTWAY_PATCHES:
+        patch = ROOT / 'runtime/patches' / name
+        if sha(patch) != expected:
+            raise RuntimeError('Riftway patch changed (update its hash): ' + name)
+        patches.append(patch)
     marker = work / 'sources/wine-patches.json'
-    wanted = json.dumps([name for name, _ in PATCHES]) + '\n'
+    wanted = json.dumps([p.name for p in patches]) + '\n'
     if (work / 'sources/wine').exists() and not (marker.exists() and marker.read_text() == wanted):
         shutil.rmtree(work / 'sources/wine')
     marker.unlink(missing_ok=True)
     wine = extract(work, 'wine', 'sources/wine/') / 'sources/wine'
     if not (marker.parent / 'wine/.patched').exists():
+        # The workspace sits inside Riftway's repository: without a ceiling, git apply
+        # takes the patch's paths from that repository's root and skips them all.
+        env = dict(os.environ, GIT_CEILING_DIRECTORIES=str(work))
         for patch in patches:
             # Some patches overlap in context that git apply rejects; BSD patch takes them.
-            if subprocess.run(['git', 'apply', '--check', str(patch)], cwd=wine, capture_output=True).returncode == 0:
-                run(['git', 'apply', patch], cwd=wine)
+            if subprocess.run(['git', 'apply', '--check', str(patch)], cwd=wine, env=env, capture_output=True).returncode == 0:
+                run(['git', 'apply', patch], cwd=wine, env=env)
             else:
                 run(['/usr/bin/patch', '-N', '-F0', '-p1', '-s', '-i', patch], cwd=wine)
+        for patch in patches:
+            path, text = APPLIED[patch.name]
+            if text not in (wine / path).read_text(errors='replace'):
+                raise RuntimeError(f'{patch.name} did not apply ({text} missing from {path})')
         (marker.parent / 'wine/.patched').write_text(wanted)
     marker.write_text(wanted)
     return wine
@@ -214,7 +243,7 @@ def build(work, tools, jobs):
     shutil.copytree(mono, installed / 'share/wine/mono/wine-mono-10.4.1', dirs_exist_ok=True)
     record = {'recipe': 'runtime/recipe/wine.py', 'derived_from': 'Recall scripts/build_portable_runtime.py',
               'inputs': {n: {'url': v[0], 'sha256': v[1]} for n, v in INPUTS.items()},
-              'recall_patches': dict(PATCHES), 'soju_patches': [],
+              'recall_patches': dict(PATCHES), 'riftway_patches': dict(RIFTWAY_PATCHES), 'soju_patches': [],
               'gnutls_header_sha256': sha(clean / 'include/gnutls/gnutls.h'),
               'build_path': BUILD_PATH, 'minimum_macos': '26.0',
               'without_gstreamer': True, 'with_vulkan': True, 'with_sdl2': True,

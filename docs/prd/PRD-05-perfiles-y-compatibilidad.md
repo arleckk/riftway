@@ -55,7 +55,7 @@ Los perfiles viven en [`profiles/`](../../profiles/), un archivo por juego con n
 | `anticheat` | Proveedor y si necesita driver de kernel, según las pruebas |
 | `tested` | Evidencia; obligatoria para `verified` |
 | `env`, `dll_overrides` | Entorno y overrides de DLL de la botella |
-| `game` | Listas de ejecutables para los parches del runtime: `WINEMAC_MOUSELOOK`, `WINE_GAME_MODE` |
+| `game` | Listas de ejecutables para los parches del runtime: `WINEMAC_MOUSELOOK` (mouse crudo), `WINE_GAME_MODE` (arrancan desde el bundle de Game Mode de la botella, con el nombre e ícono del juego) |
 | `app_dpi`, `program_dll_overrides` | DPI propio de un launcher; overrides de DLL por ejecutable (`AppDefaults`) |
 | `registry` | Valores de texto o `dword:XXXXXXXX`; solo `HKCU` y `HKLM/Software`, nunca servicios, drivers ni la clave de identidad de Riftway |
 | `dxmt_conf` | Líneas `clave = valor` de `C:\ProgramData\Riftway\dxmt.conf` |

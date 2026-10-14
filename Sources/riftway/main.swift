@@ -25,6 +25,9 @@ riftway — route URLs from macOS into Windows programs running in Wine
       Remove the Z: drive and map R: to the runtime's shared data.
   riftway bottle-fonts --runtime DIR --at DIR
       Link Windows UI fonts to the Mac's CJK fonts in an existing bottle.
+  riftway bottle-game-mode --runtime DIR --at DIR [--name NAME] [--game-mode EXE]...
+      Make the bottle's Game Mode bundle (GameMode/Game.app) for these programs, or
+      remove it without any.
   riftway bottle-wine --runtime DIR --at DIR [--timeout S] [--debug CHANNELS] -- ARGS...
       Run the runtime's wine in a bottle's environment (wine ARGS…), wait for it.
   riftway inspect <file.exe|file.msi>...
@@ -93,7 +96,7 @@ struct Options {
     var flags: Set<String> = []
 
     static let valued: Set<String> = ["--bottle", "--prefix", "--wine", "--name", "--scheme", "--arg", "--icon", "--output",
-                                      "--runtime", "--at", "--timeout", "--debug", "--app-dpi", "--mouselook", "--env",
+                                      "--runtime", "--at", "--timeout", "--debug", "--app-dpi", "--mouselook", "--game-mode", "--env",
                                       "--baseline-from", "--installer-arg", "--runtime-version", "--program-dll", "--command", "--args", "--feed", "--app",
                                       "--staged", "--target", "--pid", "--program", "--mode", "--import", "--pointer", "--export"]
     /// Everything after `--`, passed through untouched.
@@ -126,7 +129,7 @@ struct CLIError: Error, CustomStringConvertible {
     init(_ description: String) { self.description = description }
 }
 
-/// Per-game switches: --app-dpi "192:A.exe;B.exe", --mouselook EXE…, --env K=V…, --debug CHANNELS.
+/// Per-game switches: --app-dpi "192:A.exe;B.exe", --mouselook EXE…, --game-mode EXE…, --env K=V…, --debug CHANNELS.
 func gameOptions(from options: Options) throws -> GameOptions {
     var game = GameOptions()
     if let spec = options.one("--app-dpi") {
@@ -135,6 +138,7 @@ func gameOptions(from options: Options) throws -> GameOptions {
         game.appDPI = (dpi, parts[1].split(separator: ";").map(String.init))
     }
     game.mouselook = options.many("--mouselook")
+    game.gameMode = options.many("--game-mode")
     for pair in options.many("--env") {
         let kv = pair.split(separator: "=", maxSplits: 1)
         guard kv.count == 2 else { throw CLIError("--env takes NAME=VALUE") }
@@ -586,6 +590,12 @@ do {
         let fallbacks = FontLinking.available()
         try setup.configureFontLinking(fallbacks: fallbacks)
         print("Linked \(FontLinking.linkedFonts.count) Windows UI fonts to: " + fallbacks.map { "\($0.label) (\($0.language))" }.joined(separator: ", "))
+    case "bottle-game-mode":
+        let setup = try bottleSetup(options)
+        try GameModeApp.ensure(bottleRoot: setup.root, runtime: setup.runtime, options: setup.options,
+                               name: options.one("--name") ?? setup.root.lastPathComponent)
+        print(setup.options.gameMode.isEmpty ? "No Game Mode bundle"
+              : "Game Mode bundle: \(GameModeApp.bundle(bottleRoot: setup.root).path) (\(GameModeApp.identifier(bottleRoot: setup.root)))")
     case "bottle-wine":
         let setup = try bottleSetup(options)
         guard !options.passthrough.isEmpty else { throw CLIError("Pass the wine arguments after --") }

@@ -10,7 +10,8 @@ Desde `rw-0.1.4-spike`, Wine y DXMT salen de [`recipe/wine.py`](recipe/wine.py) 
 las librerías de Whisky, sin MetalFX (ni sustitutos de NVAPI, NGX o D3D12) y sin el parche
 GPL-3.0 de Soju, con las rutas mapeadas a `/build/riftway`. Los parches de Recall se leen de
 su clon fijado y se verifican por hash; las dependencias nativas siguen saliendo de su
-script. Los pasos de abajo son los mismos.
+script. Los parches propios de Riftway (LGPL-2.1+, como Wine) están en [`patches/`](patches/):
+`wine-game-mode-app.patch` (`WINE_GAME_MODE_APP`). Los pasos de abajo son los mismos.
 
 ## Fase 1: reproducir la receta de Recall
 
