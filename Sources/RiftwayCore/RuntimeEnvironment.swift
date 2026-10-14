@@ -134,6 +134,12 @@ public enum RuntimeEnvironment {
             "GST_PLUGIN_SCANNER_1_0": runtime.root + "/libexec/gstreamer-1.0/gst-plugin-scanner",
             "GST_REGISTRY_1_0": root + "/cache/gstreamer-1.0-registry.bin",
             "GIO_MODULE_DIR": runtime.root + "/lib/gio/modules",
+            // winebus reads controllers through SDL in winedevice.exe, which is
+            // never the frontmost app: Apple's GameController framework would
+            // only deliver input to the frontmost one, so SDL reads them as
+            // HID devices instead, in the background (PRD-08).
+            "SDL_JOYSTICK_MFI": "0",
+            "SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS": "1",
         ]
         env["WINEDLLOVERRIDES"] = dllOverrides(baseDLLOverrides.merging(options.dllOverrides) { $1 })
         if !options.mouselook.isEmpty { env["WINEMAC_MOUSELOOK"] = options.mouselook.joined(separator: ";") }

@@ -229,6 +229,13 @@ public struct BottleSetup: Sendable {
                         ("Platform", #""macOS""#)]
         key(#"HKEY_LOCAL_MACHINE\Software\Riftway"#, identity)
         key(#"HKEY_LOCAL_MACHINE\Software\Wow6432Node\Riftway"#, identity)
+        // PlayStation controllers as XInput gamepads (through SDL), as most
+        // games expect and as Steam Input presents them; Wine would otherwise
+        // pass them raw, like Windows does, and XInput-only games (DSR) would
+        // not see them (PRD-08).
+        for device in Self.playStationControllers {
+            key(#"HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\WineBus\Devices\"# + device, [("Hidraw", "dword:00000000")])
+        }
         let appDefaults = #"HKEY_CURRENT_USER\Software\Wine\AppDefaults"#
         text += "\r\n[-\(appDefaults)]\r\n"
         for (program, overrides) in effectiveOptions.programDllOverrides.sorted(by: { $0.key < $1.key }) {
@@ -241,6 +248,9 @@ public struct BottleSetup: Sendable {
         }
         return text
     }
+
+    /// DualShock 4 (both models and the USB adapter), DualSense and DualSense Edge.
+    public static let playStationControllers = ["054c/05c4", "054c/09cc", "054c/0ba0", "054c/0ce6", "054c/0df2"]
 
     /// Writes `settingsFile` and the profile's `dxmt.conf` into the bottle.
     /// Safe to repeat: after a profile changes, or to move a bottle to another runtime.

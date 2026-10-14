@@ -117,6 +117,7 @@ func profileJSON(_ extra: String = "", status: String = "playable", match: Strin
         #expect(text.contains("[HKEY_LOCAL_MACHINE\\Software\\Riftway]\r\n\"Version\"=\"\(Riftway.version)\"\r\n\"Runtime\"=\"rw-0.1.2\"\r\n\"Platform\"=\"macOS\""))
         #expect(text.contains("[HKEY_LOCAL_MACHINE\\Software\\Wow6432Node\\Riftway]"))
         #expect(text.contains("[-HKEY_CURRENT_USER\\Software\\Wine\\AppDefaults]"))
+        #expect(text.contains("[HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Services\\WineBus\\Devices\\054c/09cc]\r\n\"Hidraw\"=dword:00000000"))
         #expect(text.contains("[HKEY_CURRENT_USER\\Software\\Wine\\AppDefaults\\Launcher.exe\\DllOverrides]\r\n\"winegstreamer\"=\"\""))
         #expect(text.contains("[HKEY_CURRENT_USER\\Software\\Studio\\The Game]\r\n\"Count\"=dword:00000002\r\n\"DirectX11Use\"=\"1\""))
         // The old overrides are deleted before the current ones are written.
