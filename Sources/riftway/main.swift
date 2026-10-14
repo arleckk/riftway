@@ -11,7 +11,7 @@ riftway — route URLs from macOS into Windows programs running in Wine
   riftway open <url> (--bottle NAME | --prefix DIR --wine PATH) [--dry-run]
       Hand a URL to the program that registered its scheme in the bottle.
   riftway make-shim (--runtime DIR --at DIR | --bottle NAME | --prefix DIR --wine PATH) [--name NAME]
-                    [--app-dpi DPI:A.exe;B.exe] [--mouselook EXE]... [--env K=V]...
+                    [--app-dpi DPI:A.exe;B.exe] [--mouselook EXE]... [--game-mode EXE]... [--d3d11 dxmt|wined3d] [--env K=V]...
                     [--scheme S]... [--arg A]... [--icon FILE] [--output DIR]
                     [--register] [--default] [--dry-run] [--wine-log]
       Build the app macOS opens for the bottle's URL schemes (all registered
@@ -60,6 +60,9 @@ Library (~/Library/Application Support/Riftway, or $RIFTWAY_HOME):
       argument); links are kept in <home>/Secrets, outside every bottle.
   riftway diagnostics <game> on|off
       Diagnostic mode: Wine's errors and DLL loads in the bottle's logs/session-*.log.
+  riftway d3d11 <game> dxmt|wined3d|profile
+      What runs the game's 64-bit Direct3D 10/11: DXMT (Metal, the default), Wine's
+      wined3d for a game DXMT does not run, or whatever the game's profile says.
   riftway program-dll <game> <program.exe> <dll> <mode|off|remove>
       A DLL override for one program of the game (mode: n, b, n,b, b,n; off = disabled).
 
@@ -96,7 +99,7 @@ struct Options {
     var flags: Set<String> = []
 
     static let valued: Set<String> = ["--bottle", "--prefix", "--wine", "--name", "--scheme", "--arg", "--icon", "--output",
-                                      "--runtime", "--at", "--timeout", "--debug", "--app-dpi", "--mouselook", "--game-mode", "--env",
+                                      "--runtime", "--at", "--timeout", "--debug", "--app-dpi", "--mouselook", "--game-mode", "--d3d11", "--env",
                                       "--baseline-from", "--installer-arg", "--runtime-version", "--program-dll", "--command", "--args", "--feed", "--app",
                                       "--staged", "--target", "--pid", "--program", "--mode", "--import", "--pointer", "--export"]
     /// Everything after `--`, passed through untouched.
@@ -129,7 +132,8 @@ struct CLIError: Error, CustomStringConvertible {
     init(_ description: String) { self.description = description }
 }
 
-/// Per-game switches: --app-dpi "192:A.exe;B.exe", --mouselook EXE…, --game-mode EXE…, --env K=V…, --debug CHANNELS.
+/// Per-game switches: --app-dpi "192:A.exe;B.exe", --mouselook EXE…, --game-mode EXE…, --d3d11 dxmt|wined3d,
+/// --env K=V…, --debug CHANNELS.
 func gameOptions(from options: Options) throws -> GameOptions {
     var game = GameOptions()
     if let spec = options.one("--app-dpi") {
@@ -139,6 +143,10 @@ func gameOptions(from options: Options) throws -> GameOptions {
     }
     game.mouselook = options.many("--mouselook")
     game.gameMode = options.many("--game-mode")
+    if let d3d = options.one("--d3d11") {
+        guard let backend = Direct3D11(rawValue: d3d) else { throw CLIError("--d3d11 takes dxmt or wined3d") }
+        game.direct3D11 = backend
+    }
     for pair in options.many("--env") {
         let kv = pair.split(separator: "=", maxSplits: 1)
         guard kv.count == 2 else { throw CLIError("--env takes NAME=VALUE") }
@@ -749,13 +757,18 @@ do {
         try library.save(game, in: entry.root)
         print("Bridge: \(app.path)")
         if options.flags.contains("--default") { try await setDefault(app, schemes: game.schemes) }
-    case "diagnostics", "program-dll":
+    case "diagnostics", "program-dll", "d3d11":
         let library = Library()
         let entry = try findGame(library, options.positional.first)
         var record = entry.record
         if args[1] == "diagnostics" {
             guard options.positional.count == 2, ["on", "off"].contains(options.positional[1]) else { throw CLIError("Pass on or off") }
             record.options.diagnostics = options.positional[1] == "on"
+        } else if args[1] == "d3d11" {
+            guard options.positional.count == 2 else { throw CLIError("Pass dxmt, wined3d or profile") }
+            let choice = options.positional[1]
+            guard choice == "profile" || Direct3D11(rawValue: choice) != nil else { throw CLIError("Pass dxmt, wined3d or profile") }
+            record.options.direct3D11 = Direct3D11(rawValue: choice)
         } else {
             guard options.positional.count == 4 else { throw CLIError("Pass <game> <program.exe> <dll> <mode|off|remove>") }
             let (program, dll, mode) = (options.positional[1], options.positional[2], options.positional[3])
@@ -771,7 +784,8 @@ do {
         if args[1] == "program-dll" { try setup.applySettings() }
         // The bridge carries the bottle's options: rebuild it.
         if entry.game.bridge != nil { _ = try GameLauncher.makeBridge(for: updated, shimBinary: try shimBinary(), home: library.home) }
-        print("Saved. Diagnostics: \(record.options.diagnostics ? "on" : "off"); program overrides: \(record.options.programDllOverrides)")
+        print("Saved. Diagnostics: \(record.options.diagnostics ? "on" : "off"); Direct3D 11: \(record.options.direct3D11?.rawValue ?? "profile")"
+              + "; program overrides: \(record.options.programDllOverrides)")
     case "controller-import":
         guard let path = options.positional.first else { throw CLIError("Pass the .vdf file") }
         let url = URL(fileURLWithPath: path)

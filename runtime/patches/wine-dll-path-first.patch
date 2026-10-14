@@ -1,0 +1,33 @@
+ntdll: WINEDLLPATH_FIRST, a directory searched before the runtime's modules.
+
+WINEDLLPATH is searched after the runtime's own dll directory, so it cannot
+replace a builtin. Riftway's runtime ships DXMT's d3d11, dxgi and d3d10core as
+the builtins and Wine's own (wined3d) in lib/wine/wined3d; a game profile that
+needs wined3d points WINEDLLPATH_FIRST there. CrossOver has the same need
+(CW Hack 24067, prepend_dll_path) but its caller is not in the published sources.
+
+Riftway, offered under LGPL-2.1-or-later like Wine.
+
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -388,14 +388,18 @@
+ 
+ static void set_dll_path(void)
+ {
+-    char *p, *path = getenv( "WINEDLLPATH" );
++    char *p, *path = getenv( "WINEDLLPATH" ), *first = getenv( "WINEDLLPATH_FIRST" );
+     int i, count = 0;
+ 
+     if (path) for (p = path, count = 1; *p; p++) if (*p == ':') count++;
+ 
+-    dll_paths = malloc( (count + 2) * sizeof(*dll_paths) );
++    dll_paths = malloc( (count + 3) * sizeof(*dll_paths) );
+     count = 0;
+ 
++    /* Riftway: WINEDLLPATH_FIRST is one directory searched before the runtime's own
++     * modules (WINEDLLPATH comes after them), such as Wine's wined3d-based d3d11, dxgi
++     * and d3d10core for a game DXMT does not run, in a runtime whose defaults are DXMT's. */
++    if (first && *first) dll_paths[count++] = strdup( first );
+     if (!build_dir) dll_paths[count++] = dll_dir;
+ 
+     if (path)

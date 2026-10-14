@@ -23,6 +23,8 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
     public var game: [String: [String]]
     /// `{"dpi": 192, "programs": ["Launcher.exe"]}` for launchers drawn tiny on Retina.
     public var appDPI: AppDPI?
+    /// `"wined3d"` for a game DXMT does not run; DXMT when absent.
+    public var d3d11: Direct3D11?
     public var dllOverrides: [String: String]
     public var programDllOverrides: [String: [String: String]]
     /// `"HKCU/Software/Studio/Game": {"Value": "1"}`; `dword:00000001` for a DWORD.
@@ -95,7 +97,7 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case schema, id, name, revision, match, status, anticheat, tested, env, game, notes, registry
         case appDPI = "app_dpi", dllOverrides = "dll_overrides", programDllOverrides = "program_dll_overrides"
-        case dxmtConf = "dxmt_conf", playLink = "play_link", controller
+        case dxmtConf = "dxmt_conf", playLink = "play_link", controller, d3d11
     }
 
     public init(id: String, name: String, match: Match, status: CompatibilityStatus) {
@@ -126,6 +128,7 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
         env = try c.decodeIfPresent([String: String].self, forKey: .env) ?? [:]
         game = try c.decodeIfPresent([String: [String]].self, forKey: .game) ?? [:]
         appDPI = try c.decodeIfPresent(AppDPI.self, forKey: .appDPI)
+        d3d11 = try c.decodeIfPresent(Direct3D11.self, forKey: .d3d11)
         dllOverrides = try c.decodeIfPresent([String: String].self, forKey: .dllOverrides) ?? [:]
         programDllOverrides = try c.decodeIfPresent([String: [String: String]].self, forKey: .programDllOverrides) ?? [:]
         registry = try c.decodeIfPresent([String: [String: String]].self, forKey: .registry) ?? [:]
@@ -171,7 +174,7 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
 
     static let knownKeys: Set<String> = ["schema", "id", "name", "revision", "match", "status", "anticheat", "tested", "env",
                                          "game", "app_dpi", "dll_overrides", "program_dll_overrides", "registry",
-                                         "dxmt_conf", "play_link", "controller", "notes"]
+                                         "dxmt_conf", "play_link", "controller", "d3d11", "notes"]
     static let knownMatchKeys: Set<String> = ["product", "company", "signer", "installer", "executables", "sha256"]
     public static let patches = ["WINEMAC_MOUSELOOK", "WINE_GAME_MODE"]
 
@@ -223,6 +226,7 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
         options.mouselook = game["WINEMAC_MOUSELOOK"] ?? []
         options.gameMode = game["WINE_GAME_MODE"] ?? []
         options.appDPI = appDPI.map { ($0.dpi, $0.programs) }
+        options.direct3D11 = d3d11
         options.dllOverrides = dllOverrides
         options.programDllOverrides = programDllOverrides
         options.environment = env

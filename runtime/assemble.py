@@ -47,6 +47,9 @@ PATCH_MARKERS = [
     ('lib/wine/x86_64-unix/win32u.so', 'WINE_APP_DPI'),                # wine-win32u-display-log
     ('lib/wine/x86_64-unix/winemac.so', 'WINEMAC_SCREEN_READBACK'),    # wine-winemac-activation
     ('lib/wine/x86_64-unix/ntdll.so', 'WINE_GAME_MODE_APP'),           # wine-game-mode-app (Riftway)
+    ('lib/wine/x86_64-unix/ntdll.so', 'WINEDLLPATH_FIRST'),            # wine-dll-path-first (Riftway)
+    ('lib/wine/x86_64-windows/winegstreamer.dll', 'cannot hold NV12 frames'),     # wine-video-memory-fallback (Riftway)
+    ('lib/wine/x86_64-windows/mfreadwrite.dll', 'delivering them in memory'),     # wine-video-memory-fallback (Riftway)
 ]
 PROOFS = ['wine-build-proof.json', 'dxmt-build-proof.json', 'native-build-proof.json', 'media-build-proof.json']
 MONO_SOURCE_SHA = '128e335396689e466dff5e1aa0770a714dbe3d16397fc4ddbb8a80999c67323b'
@@ -173,6 +176,10 @@ def assemble(version, identity):
             copy(p, dest / p.relative_to(wine))
     shutil.copytree(wine / 'share/wine', dest / 'share/wine', symlinks=True)
 
+    # Wine's own 64-bit d3d11/dxgi/d3d10core (wined3d) stay in lib/wine/wined3d, for a game
+    # whose profile asks for them (WINEDLLPATH_FIRST, runtime/patches/wine-dll-path-first.patch).
+    for name in ('d3d11.dll', 'dxgi.dll', 'd3d10core.dll'):
+        copy(dest / 'lib/wine/x86_64-windows' / name, dest / 'lib/wine/wined3d/x86_64-windows' / name)
     # DXMT over Wine's 64-bit d3d11/dxgi/d3d10core (32-bit stays wined3d).
     for p in (PHASE2 / 'dxmt-install').rglob('*'):
         if p.is_file() and p.suffix in ('.dll', '.so'):

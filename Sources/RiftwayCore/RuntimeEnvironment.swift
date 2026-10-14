@@ -11,6 +11,13 @@ public struct WineRuntime: Sendable, Codable, Equatable {
     public var wineserver: String { root + "/bin/wineserver" }
 }
 
+/// What runs a game's 64-bit Direct3D 10 and 11: DXMT (Metal), the runtime's
+/// default, or Wine's own wined3d for a game DXMT does not run. 32-bit games and
+/// Direct3D 9 and older always use wined3d.
+public enum Direct3D11: String, Codable, CaseIterable, Sendable {
+    case dxmt, wined3d
+}
+
 /// Per-game switches the runtime's patches read from the environment. Empty
 /// lists leave a patch inert, which is the default for every game.
 public struct GameOptions: Sendable, Codable, Equatable {
@@ -18,6 +25,8 @@ public struct GameOptions: Sendable, Codable, Equatable {
     public var mouselook: [String] = []
     /// Executables started from the Game Mode app bundle.
     public var gameMode: [String] = []
+    /// Direct3D 10/11 through wined3d instead of DXMT; nil is the default (DXMT).
+    public var direct3D11: Direct3D11?
     /// Executables that see their own DPI (launchers drawn tiny on Retina).
     public var appDPI: (dpi: Int, programs: [String])?
     /// `dll` → `n`, `b`, `n,b`, `b,n` or "" (disabled), on top of the runtime's defaults.
@@ -34,7 +43,7 @@ public struct GameOptions: Sendable, Codable, Equatable {
     public init() {}
 
     public static func == (a: GameOptions, b: GameOptions) -> Bool {
-        a.mouselook == b.mouselook && a.gameMode == b.gameMode && a.appDPI?.dpi == b.appDPI?.dpi
+        a.mouselook == b.mouselook && a.gameMode == b.gameMode && a.direct3D11 == b.direct3D11 && a.appDPI?.dpi == b.appDPI?.dpi
             && a.appDPI?.programs == b.appDPI?.programs && a.dllOverrides == b.dllOverrides && a.environment == b.environment
             && a.programDllOverrides == b.programDllOverrides && a.diagnostics == b.diagnostics
     }
@@ -46,6 +55,7 @@ public struct GameOptions: Sendable, Codable, Equatable {
         result.mouselook += player.mouselook.filter { !mouselook.contains($0) }
         result.gameMode += player.gameMode.filter { !gameMode.contains($0) }
         if let dpi = player.appDPI { result.appDPI = dpi }
+        if let d3d = player.direct3D11 { result.direct3D11 = d3d }
         result.dllOverrides.merge(player.dllOverrides) { $1 }
         for (program, overrides) in player.programDllOverrides {
             result.programDllOverrides[program, default: [:]].merge(overrides) { $1 }
@@ -56,13 +66,14 @@ public struct GameOptions: Sendable, Codable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case mouselook, gameMode, appDPI, appDPIPrograms, dllOverrides, programDllOverrides, environment, diagnostics
+        case mouselook, gameMode, direct3D11, appDPI, appDPIPrograms, dllOverrides, programDllOverrides, environment, diagnostics
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         mouselook = try c.decodeIfPresent([String].self, forKey: .mouselook) ?? []
         gameMode = try c.decodeIfPresent([String].self, forKey: .gameMode) ?? []
+        direct3D11 = try c.decodeIfPresent(Direct3D11.self, forKey: .direct3D11)
         if let dpi = try c.decodeIfPresent(Int.self, forKey: .appDPI) {
             appDPI = (dpi, try c.decodeIfPresent([String].self, forKey: .appDPIPrograms) ?? [])
         }
@@ -76,6 +87,7 @@ public struct GameOptions: Sendable, Codable, Equatable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(mouselook, forKey: .mouselook)
         try c.encode(gameMode, forKey: .gameMode)
+        try c.encodeIfPresent(direct3D11, forKey: .direct3D11)
         try c.encodeIfPresent(appDPI?.dpi, forKey: .appDPI)
         try c.encodeIfPresent(appDPI?.programs, forKey: .appDPIPrograms)
         try c.encode(dllOverrides, forKey: .dllOverrides)
@@ -149,6 +161,11 @@ public enum RuntimeEnvironment {
             if GameModeApp.isCurrent(bottleRoot: bottleRoot, runtime: runtime) {
                 env["WINE_GAME_MODE_APP"] = GameModeApp.executable(bottleRoot: bottleRoot).path
             }
+        }
+        if options.direct3D11 == .wined3d {
+            // Wine's own d3d11, dxgi and d3d10core, searched before DXMT's
+            // (runtime/patches/wine-dll-path-first.patch).
+            env["WINEDLLPATH_FIRST"] = runtime.root + "/lib/wine/wined3d"
         }
         if let dpi = options.appDPI, !dpi.programs.isEmpty {
             env["WINE_APP_DPI"] = "\(dpi.dpi):" + dpi.programs.joined(separator: ";")

@@ -81,7 +81,8 @@ tengan alguna. `rw-0.1.4-spike` se desinstaló; ninguna botella lo usaba.
    `GameModeApp` en RiftwayCore). Probado: con `--game-mode PING.EXE`, `ping.exe` corre desde
    `<botella>/GameMode/Game.app/Contents/MacOS/wine`; sin él, desde el loader. Falta ver a
    macOS activar Game Mode con un juego en pantalla completa.
-4. Decidir la convivencia DXMT/wined3d para D3D11 de 64 bits (sección 4.3).
+4. ✅ Convivencia DXMT/wined3d para D3D11 de 64 bits (`rw-0.1.8-spike`, sección 4.3): el
+   mecanismo funciona, pero wined3d en macOS no sirve como respaldo para juegos D3D11 reales.
 5. ✅ Prefix-map `/build/riftway` en Wine, FreeType, DXMT y winegstreamer.
 6. ✅ Reproducibilidad (2026-10-14, `rw-0.1.7-spike`): el workspace principal y uno limpio en
    otra ruta (`RIFTWAY_PHASE2=…/phase-2`: dependencias, Wine, DXMT y media desde cero) dan
@@ -112,6 +113,20 @@ tengan alguna. `rw-0.1.4-spike` se desinstaló; ninguna botella lo usaba.
    ni plugins GPL. La prueba de humo decodifica un MP4 (H.264 + AAC) por Media Foundation.
    Pendiente: WMV, WMA, Cinepak, Indeo y video MPEG-1/2 (solo los decodifica FFmpeg;
    decidir con revisión de licencias y patentes) y `orc` (acelera `videoconvert`).
+9. Video en texturas D3D11 (`rw-0.1.8-spike`, parche propio
+   `runtime/patches/wine-video-memory-fallback.patch`). Unreal Engine 5 (Electra) le pasa al
+   decodificador H.264 su dispositivo D3D11 por un `IMFDXGIDeviceManager`, y el asignador de
+   muestras de Wine crea texturas NV12 en él. DXMT no tiene texturas NV12
+   (`CreateMTLTextureDescriptorInternal: invalid format: 103`), así que cada muestra falla y
+   el fondo de la selección de servidor de DSR (`Content/Movies/login.mp4`) no aparece. Lo
+   reproduce `runtime/probes/movie_probe.c` en modo `d3d11` (sin dispositivo, el mismo video
+   decodifica). Con el parche, el decodificador revisa `CheckFormatSupport(NV12)` y responde
+   `E_NOTIMPL` a `MFT_MESSAGE_SET_D3D_MANAGER`, como documenta Microsoft para un MFT sin
+   Direct3D, y sigue decodificando en memoria; el lector de Media Foundation (que con un
+   dispositivo crea su propio asignador de texturas) entrega las muestras en memoria si ese
+   asignador no se puede inicializar. `media.py` incluye la lista de parches en la
+   firma de `media-wine-build`, porque un árbol extraído de nuevo conserva las fechas del
+   archivo.
 
 ---
 
@@ -284,8 +299,8 @@ mismo contrato) que lea un `sources.lock.json` y un `patches/series` propios.
      o `@loader_path/../..` (en `lib/wine`).
   8. Rechaza el payload si contiene la ruta del repo, del workspace, `/opt/homebrew/` o
      `/Users/` (salvo la ruta de CI de llvm-mingw), en UTF-8 y UTF-16LE.
-- Riftway: igual, pero **no sobrescribir** los DLL de Wine con los de DXMT si se quiere
-  wined3d como alternativa para D3D11 (ver sección 4.3). `config/dxmt.conf` debe quedar
+- Riftway: igual, pero antes de sobrescribir guarda los DLL de Wine en
+  `lib/wine/wined3d/x86_64-windows` para la opción `d3d11: wined3d` (ver sección 4.3). `config/dxmt.conf` debe quedar
   vacío o genérico; las secciones por juego las genera Riftway desde el perfil.
 
 ### Paso 8. Bundle de Game Mode
@@ -465,11 +480,30 @@ al detectar si hay sesión porque el primer arranque bajo Rosetta tarda) y `wine
 
 Recall sobrescribe `d3d11/dxgi/d3d10core.dll` de 64 bits con los de DXMT, así que en su
 runtime no hay wined3d para D3D11 de 64 bits; D3D9 y anteriores, y todo lo de 32 bits,
-siguen en wined3d. Para cumplir R1.3 con un respaldo wined3d por perfil hay que resolver
-**[sin verificar]** cuál de estas funciona con este Wine: (a) DXMT en `lib/dxmt/` con
-`WINEDLLPATH` (revisar el orden de búsqueda del loader), (b) el mecanismo de
-`CX_GRAPHICS_BACKEND` de CrossOver, o (c) dos variantes del runtime. Esto es un punto del
-spike.
+siguen en wined3d.
+
+**Decisión (2026-10-14, `rw-0.1.8-spike`): opción (a), con un parche propio.**
+`assemble.py` guarda los tres DLL de Wine en `lib/wine/wined3d/x86_64-windows` antes de
+sobrescribirlos con los de DXMT. El loader de Wine busca primero en su propio directorio de
+DLL y después en `WINEDLLPATH`, así que `WINEDLLPATH` no basta: el parche
+`runtime/patches/wine-dll-path-first.patch` agrega `WINEDLLPATH_FIRST`, un directorio que va
+antes que el de Wine. Con `"d3d11": "wined3d"` en el perfil (o `riftway d3d11 <juego>
+wined3d`, o `--d3d11 wined3d`), `RuntimeEnvironment` lo apunta a `lib/wine/wined3d`.
+
+Probado con `runtime/probes/d3d11_probe.c`: con `wined3d` el juego carga el `d3d11` de Wine
+(sus mensajes `d3d11:` aparecen en el log), pero **no crea shaders de modelo 4 ni 5**. Con
+OpenGL (el renderer por defecto, OpenGL 4.1 en macOS) wined3d reporta como máximo
+feature level 10_1; con Vulkan (MoltenVK, sin geometry shaders) 9_3. En ambos casos
+`wined3d_shader_extract_from_dxbc` omite el bytecode SM4+ y `CreateVertexShader` devuelve
+`E_INVALIDARG`; DXMT dibuja el mismo probe en 11_0. Por eso:
+
+- DXMT queda como el único backend de D3D10/11 de 64 bits para los juegos.
+- `d3d11: wined3d` se conserva como opción experimental de perfil, sin interfaz: sirve para
+  juegos D3D11 que funcionan en feature level 9_x y para comparar contra DXMT al
+  diagnosticar. Cuesta tres DLL (1.1 MB).
+- Un respaldo real para D3D11 necesitaría otro traductor (D3DMetal del Game Porting
+  Toolkit, que no se puede redistribuir, o DXVK sobre MoltenVK, que tampoco tiene geometry
+  shaders). Queda fuera de la fase 2.
 
 ### 4.4 Crear una botella (según `prepare()` de `scripts/portable_setup.m`)
 
@@ -598,6 +632,6 @@ Total aproximado: 6–10 semanas.
 | Código de Soju con GPL-3.0 dentro de parches de Wine | Riesgo de licencia, sobre todo con Riftway cerrado | Revisión legal antes de la primera distribución |
 | Parches validados solo con Overwatch y Battle.net (registro con `fork`, compresión, canvas) | Regresiones en otros juegos | Probar todo el corpus; interruptores por perfil donde falten |
 | Game Mode con runtime inmutable | El bundle por juego no cabe en el runtime verificado | Opción A del paso 8; spike de la opción B |
-| Respaldo wined3d para D3D11 (4.3) | Sin respaldo si DXMT falla en un juego | Resolverlo en el spike |
+| Respaldo wined3d para D3D11 (4.3) | Sin respaldo si DXMT falla en un juego: wined3d en macOS no pasa de shader model 3 | Aceptado; DXMT es el backend; el corpus de M2 dirá si hace falta otro traductor |
 | Notarización y cuarentena del runtime descargado aparte | Gatekeeper podría bloquearlo | Notarizar el runtime como `.zip`; probar en una Mac limpia |
 | `WINEMAC_SCREEN_READBACK` y la identidad NVIDIA falsa | Choque con el principio de no evadir anti-cheats | Fuera de v1; solo por perfil y con revisión |

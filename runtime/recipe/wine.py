@@ -57,6 +57,12 @@ PATCHES = [
 RIFTWAY_PATCHES = [
     # WINE_GAME_MODE_APP: Game Mode from the game's own bundle, in its bottle.
     ('wine-game-mode-app.patch', '46e097629cfa2063fc6d8d2dd0b6a91ce821b13b6d7606f17c4769c7b5a83bbb'),
+    # mshtml: no readystate notification once the document object is gone (DSR's launcher).
+    ('wine-mshtml-readystate-detached.patch', '7b7f56a1800ed2ce34c1e7f3338f5640dda2f39a0c587c273039d1ce7e46c1b4'),
+    # WINEDLLPATH_FIRST: Wine's wined3d d3d11/dxgi/d3d10core for a game DXMT does not run.
+    ('wine-dll-path-first.patch', 'd153905289e808cd66493e1af1e3bfba86f76d5f7cd090142407f63c28a402a8'),
+    # Video in memory when the D3D11 device has no NV12 textures (DXMT; UE5 videos).
+    ('wine-video-memory-fallback.patch', 'd7b4ef223779db0b7c4c0c6d19782816ca2070bff675c3e4e5a9c64950abc223'),
 ]
 # A string each patch adds, checked in the patched tree: a patch that silently did not
 # apply fails the build instead of shipping without it.
@@ -69,6 +75,9 @@ APPLIED = {
     'wine-win32u-display-log.patch': ('dlls/win32u/sysparams.c', 'WINE_APP_DPI'),
     'wine-winemac-activation.patch': ('dlls/winemac.drv/gdi.c', 'WINEMAC_SCREEN_READBACK'),
     'wine-game-mode-app.patch': ('dlls/ntdll/unix/loader.c', 'WINE_GAME_MODE_APP'),
+    'wine-mshtml-readystate-detached.patch': ('dlls/mshtml/persist.c', 'is_main_content_window(window) && window->browser->doc'),
+    'wine-dll-path-first.patch': ('dlls/ntdll/unix/loader.c', 'WINEDLLPATH_FIRST'),
+    'wine-video-memory-fallback.patch': ('dlls/mfreadwrite/reader.c', 'delivering them in memory'),
 }
 BUILD_PATH = '/build/riftway'
 # PE modules carry this date instead of the build's (runtime/sources.lock.json).

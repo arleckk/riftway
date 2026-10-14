@@ -232,7 +232,10 @@ def winegstreamer(env, jobs):
             'HOME': os.environ['HOME'], 'DEVELOPER_DIR': env['DEVELOPER_DIR'], 'SDKROOT': SDK,
             'MACOSX_DEPLOYMENT_TARGET': '26.0', 'SOURCE_DATE_EPOCH': str(LOCK['source_date_epoch']['value'])}
     configured = tree / '.riftway-media-configuration'
-    signature = gst_cflags + '\n' + gst_libs + '\n' + wine_flags + '\n' + wenv['SOURCE_DATE_EPOCH'] + '\n'
+    # The patch set too: a source tree extracted again keeps the archive's dates, and make
+    # would keep objects of another patch set.
+    signature = (gst_cflags + '\n' + gst_libs + '\n' + wine_flags + '\n' + wenv['SOURCE_DATE_EPOCH'] + '\n'
+                 + (PHASE2 / 'sources/wine-patches.json').read_text())
     if tree.exists() and not (configured.exists() and configured.read_text() == signature):
         shutil.rmtree(tree)
     tree.mkdir(exist_ok=True)

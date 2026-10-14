@@ -1,0 +1,23 @@
+mshtml: no readystate notification for a document object that is gone.
+
+notif_readystate dereferences window->browser->doc, which is NULL once the
+document object has let go of the browser. A queued load event can still reach
+it then: the Digimon SuperRumble launcher (a WinForms web view on Wine Gecko,
+playing an H.264 video) closes its window right after starting the game and
+crashes in call_property_onchanged reading NULL->cp_container.
+
+Riftway, offered under LGPL-2.1-or-later like Wine.
+
+--- a/dlls/mshtml/persist.c
++++ b/dlls/mshtml/persist.c
+@@ -441,7 +441,9 @@
+     if(frame_element)
+         IHTMLDOMNode_AddRef(&frame_element->element.node.IHTMLDOMNode_iface);
+ 
+-    if(is_main_content_window(window))
++    /* Riftway: a load event can arrive after the document object let go of the
++     * browser (a launcher closing its window right after starting a game). */
++    if(is_main_content_window(window) && window->browser->doc)
+         call_property_onchanged(&window->browser->doc->cp_container, DISPID_READYSTATE);
+ 
+     hres = create_document_event(inner_window->doc, EVENTID_READYSTATECHANGE, &event);

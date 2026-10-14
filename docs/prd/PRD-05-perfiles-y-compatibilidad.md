@@ -59,6 +59,7 @@ Los perfiles viven en [`profiles/`](../../profiles/), un archivo por juego con n
 | `app_dpi`, `program_dll_overrides` | DPI propio de un launcher; overrides de DLL por ejecutable (`AppDefaults`) |
 | `registry` | Valores de texto o `dword:XXXXXXXX`; solo `HKCU` y `HKLM/Software`, nunca servicios, drivers ni la clave de identidad de Riftway |
 | `dxmt_conf` | Líneas `clave = valor` de `C:\ProgramData\Riftway\dxmt.conf` |
+| `d3d11` | `dxmt` (por defecto) o `wined3d`: experimental, para juegos D3D11 en feature level 9_x o para comparar al diagnosticar (RUNTIME-BUILD.md 4.3). El jugador puede cambiarlo (`riftway d3d11 <juego> dxmt\|wined3d\|profile`) |
 | `play_link` | Esquema con el que Jugar abre el último enlace que mandó el sitio, en vez del sitio |
 | `controller` | Configuración de control ([PRD-08](PRD-08-controles.md)): modo y mapeo por programa, el mismo formato que exporta el editor. Se escribe en la botella solo si no tiene una propia; se valida que cada capa que se mantiene exista |
 | `notes` | Texto para el jugador |
@@ -66,8 +67,9 @@ Los perfiles viven en [`profiles/`](../../profiles/), un archivo por juego con n
 Las opciones del jugador (modo diagnóstico, overrides propios) van encima de las del perfil
 y se guardan aparte (`bottle.json`), así que cambiar o quitar el perfil no las pierde. Una
 clave desconocida es un error: un error de dedo nunca descarta un ajuste en silencio. El campo
-`graphics` del borrador original se quitó: el runtime solo tiene DXMT (D3D10/11) y DSR mostró
-que forzar DX11 es un valor de registro del juego, no un argumento.
+`graphics` del borrador original se quitó: DSR mostró que forzar DX11 es un valor de registro
+del juego, no un argumento. Elegir el backend de D3D11 es `d3d11`, y wined3d en macOS no pasa
+de shader model 3, así que DXMT es el backend de los juegos.
 
 | ID | Requisito |
 |---|---|
