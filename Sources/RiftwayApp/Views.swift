@@ -4,11 +4,11 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum SidebarItem: Hashable {
-    case library, playing, runtimes
+    case library, playing, launchers, runtimes
 }
 
-/// The main window: a sidebar and the library, the games open now or the
-/// installed runtimes (PRD-04).
+/// The main window: a sidebar and the library, the games open now, the
+/// launchers Riftway downloads or the installed runtimes (PRD-04).
 struct LibraryView: View {
     @Bindable var model: AppModel
     @Bindable var library: LibraryModel
@@ -54,6 +54,11 @@ struct LibraryView: View {
         }
         .tint(Theme.violet)
         .onChange(of: item) { path.removeAll() }
+        .onChange(of: model.requestedSection, initial: true) {
+            guard let section = model.requestedSection else { return }
+            model.requestedSection = nil
+            item = section
+        }
         .onChange(of: pad.event) {
             if let command = pad.event?.command { handle(command) }
         }
@@ -88,9 +93,6 @@ struct LibraryView: View {
         .sheet(isPresented: $updates.showsSheet) {
             UpdateView(updates: updates, library: library)
         }
-        .sheet(isPresented: $model.showsLaunchers) {
-            LaunchersView(model: model)
-        }
         .sheet(isPresented: $model.showsAssociationOffer) {
             AssociationOfferView { model.associationOfferAnswered(accept: $0) }
         }
@@ -113,7 +115,7 @@ struct LibraryView: View {
         switch item ?? .library {
         case .library: library.entries.filter { search.isEmpty || $0.game.name.localizedCaseInsensitiveContains(search) }
         case .playing: library.entries.filter { library.running.contains($0.id) }
-        case .runtimes: []
+        case .launchers, .runtimes: []
         }
     }
 
@@ -148,7 +150,7 @@ struct LibraryView: View {
                 library.play(entry)
             }
         case .previousSection, .nextSection:
-            let all: [SidebarItem] = [.library, .playing, .runtimes]
+            let all: [SidebarItem] = [.library, .playing, .launchers, .runtimes]
             let index = all.firstIndex(of: item ?? .library) ?? 0
             item = all[(index + (command == .nextSection ? 1 : all.count - 1)) % all.count]
         case .back:
@@ -162,6 +164,7 @@ struct LibraryView: View {
         switch item ?? .library {
         case .library: LibraryPage(model: model, library: library, search: $search, isTargeted: isTargeted, pad: pad, open: open)
         case .playing: PlayingPage(library: library, pad: pad, open: open)
+        case .launchers: LaunchersPage(model: model)
         case .runtimes: RuntimesPage(library: library)
         }
     }
@@ -176,6 +179,7 @@ private struct Sidebar: View {
         List(selection: $item) {
             Label("Biblioteca", systemImage: "square.grid.2x2").tag(SidebarItem.library)
             Label("Jugando", systemImage: "play.circle").badge(library.running.count).tag(SidebarItem.playing)
+            Label("Launchers", systemImage: "storefront").tag(SidebarItem.launchers)
             Section("Sistema") {
                 Label("Runtimes", systemImage: "shippingbox").tag(SidebarItem.runtimes)
             }
@@ -262,7 +266,7 @@ private struct LibraryPage: View {
                                action: ("Elegir runtime…", { library.chooseRuntime() }))
                 }
                 if library.entries.isEmpty {
-                    EmptyLibrary(isTargeted: isTargeted, choose: { model.chooseFiles() }, launchers: { model.showsLaunchers = true })
+                    EmptyLibrary(isTargeted: isTargeted, choose: { model.chooseFiles() }, launchers: { model.requestedSection = .launchers })
                 } else if shown.isEmpty {
                     ContentUnavailableView.search(text: search).frame(maxWidth: .infinity, minHeight: 300)
                 } else {
@@ -281,15 +285,8 @@ private struct LibraryPage: View {
         .searchable(text: $search, placement: .toolbar, prompt: "Buscar")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    Button("Elegir instalador…") { model.chooseFiles() }
-                    Button("Instalar un launcher…") { model.showsLaunchers = true }
-                } label: {
-                    Label("Instalar juego", systemImage: "plus")
-                } primaryAction: {
-                    model.chooseFiles()
-                }
-                .help("Instala un juego desde su instalador de Windows (⌘O), o un launcher como Steam")
+                Button { model.chooseFiles() } label: { Label("Instalar juego", systemImage: "plus") }
+                    .help("Instala un juego desde su instalador de Windows (⌘O)")
             }
         }
     }

@@ -32,8 +32,8 @@ final class AppModel {
 
     // MARK: Launchers
 
-    /// The sheet of game launchers Riftway downloads (Steam, Epic…).
-    var showsLaunchers = false
+    /// A sidebar section to show (the File menu and the empty library ask for Launchers).
+    var requestedSection: SidebarItem?
     /// Each launcher downloading now, and how far (0…1).
     private(set) var launcherProgress: [String: Double] = [:]
     /// Why the last download was refused or failed, by launcher.
@@ -55,9 +55,6 @@ final class AppModel {
                 }
                 log.write("app: downloaded \(launcher.name)'s installer")
                 finishLauncher(launcher.id)
-                showsLaunchers = false
-                // After the sheet closes: one sheet at a time.
-                try await Task.sleep(for: .milliseconds(350))
                 open([file])
             } catch is CancellationError {
                 finishLauncher(launcher.id)

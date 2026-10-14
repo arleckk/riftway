@@ -30,8 +30,9 @@ riftway — route URLs from macOS into Windows programs running in Wine
       remove it without any.
   riftway bottle-wine --runtime DIR --at DIR [--timeout S] [--debug CHANNELS] -- ARGS...
       Run the runtime's wine in a bottle's environment (wine ARGS…), wait for it.
-  riftway inspect <file.exe|file.msi>...
-      Analyze Windows installers and programs without running them.
+  riftway inspect <file.exe|file.msi>... [--icon FILE.ico]
+      Analyze Windows installers and programs without running them; --icon writes
+      the (last) file's icon.
 
 Library (~/Library/Application Support/Riftway, or $RIFTWAY_HOME):
   riftway runtime-install <runtime folder>
@@ -625,6 +626,7 @@ do {
         for path in options.positional {
             let report = InstallerAnalyzer.analyze(URL(fileURLWithPath: path))
             print(describe(report))
+            if let out = options.one("--icon"), let icon = report.icon { try icon.write(to: URL(fileURLWithPath: out)) }
             if case .unsupported = report.kind { continue }
             let profile = profiles.match(ProfileQuery(report: report, hash: profiles.usesHashes))
             print(describe(Compatibility(profile: profile)).split(separator: "\n").map { "  " + $0 }.joined(separator: "\n"))

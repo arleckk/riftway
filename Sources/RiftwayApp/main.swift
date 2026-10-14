@@ -92,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showLaunchers(_ sender: Any?) {
         showMain()
-        model.showsLaunchers = true
+        model.requestedSection = .launchers
     }
 
     @objc func chooseRuntime(_ sender: Any?) {
@@ -176,7 +176,7 @@ func renderAnalysis(_ file: String, to output: String) -> Int32 {
 }
 
 /// Developer aid: `Riftway --render-library <out.png>` draws the main window on
-/// the library of $RIFTWAY_HOME (`--render-page <library|playing|runtimes> <out.png>`
+/// the library of $RIFTWAY_HOME (`--render-page <library|playing|launchers|runtimes> <out.png>`
 /// on another section; with $RIFTWAY_RENDER_PAD=1, as the controller leaves it:
 /// the first cover focused and the hints), and `--render-install <bottle> <out.png>` the result
 /// screen for an installed bottle (its discovery against its baseline).
@@ -246,7 +246,7 @@ if let index = arguments.firstIndex(of: "--render-library"), arguments.count > i
     exit(MainActor.assumeIsolated { renderLibrary(to: arguments[index + 1]) })
 }
 if let index = arguments.firstIndex(of: "--render-page"), arguments.count > index + 2 {
-    let pages: [String: SidebarItem] = ["library": .library, "playing": .playing, "runtimes": .runtimes]
+    let pages: [String: SidebarItem] = ["library": .library, "playing": .playing, "launchers": .launchers, "runtimes": .runtimes]
     exit(MainActor.assumeIsolated { renderLibrary(to: arguments[index + 2], page: pages[arguments[index + 1]] ?? .library) })
 }
 if let index = arguments.firstIndex(of: "--render-game"), arguments.count > index + 3 {
@@ -280,9 +280,6 @@ if let index = arguments.firstIndex(of: "--render-controller"), arguments.count 
         guard let entry = library.entries.first(where: { $0.id == arguments[index + 1] }) else { return 1 }
         return snapshot(AnyView(ControllerEditorView(entry: entry, library: library)), to: arguments[index + 2])
     })
-}
-if let index = arguments.firstIndex(of: "--render-launchers"), arguments.count > index + 1 {
-    exit(MainActor.assumeIsolated { snapshot(AnyView(LaunchersView(model: AppModel())), to: arguments[index + 1]) })
 }
 if let index = arguments.firstIndex(of: "--render-settings"), arguments.count > index + 1 {
     exit(MainActor.assumeIsolated { snapshot(AnyView(SettingsView(updates: UpdateModel(), library: LibraryModel())), to: arguments[index + 1]) })
