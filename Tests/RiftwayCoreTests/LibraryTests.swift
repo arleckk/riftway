@@ -281,6 +281,18 @@ let installedSystemReg = #"""
         #expect(linkPlan.arguments.last == "gameopen:token;me@example.com")
         #expect(FileManager.default.fileExists(atPath: home.root.appendingPathComponent("Secrets/game-g.link").path))
 
+        // Uninstallers: a program of the bottle, or a Windows command through wine.
+        var withUninstaller = library.entry(at: root)!.game
+        withUninstaller.uninstall = UninstallEntry(key: "g", uninstallString: #""C:\Games\G\G.exe" /uninstall"#)
+        try library.save(withUninstaller, in: root)
+        let exePlan = try GameLauncher.uninstallPlan(for: library.entry(at: root)!)
+        #expect(exePlan.arguments.first?.hasSuffix("drive_c/Games/G/G.exe") == true && exePlan.arguments.last == "/uninstall")
+        withUninstaller.uninstall?.uninstallString = "MsiExec.exe /X{AA28AA7D-CA50-44EB-AF34-7F99E4662CF1}"
+        try library.save(withUninstaller, in: root)
+        let msiPlan = try GameLauncher.uninstallPlan(for: library.entry(at: root)!)
+        #expect(msiPlan.executable.hasSuffix("/bin/wine") && msiPlan.arguments == ["MsiExec.exe", "/X{AA28AA7D-CA50-44EB-AF34-7F99E4662CF1}"])
+        #expect(!GameLauncher.primaryIsMissing(library.entry(at: root)!))  // the custom link has no program to miss
+
         let game = try GameLauncher.setCustomLaunch(.command(path: #"C:\Games\G\G.exe"#, arguments: "-dx11 \"two words\""),
                                                     for: entry, library: library)
         #expect(game.customLaunch == .command(path: #"C:\Games\G\G.exe"#, arguments: "-dx11 \"two words\""))
@@ -288,5 +300,22 @@ let installedSystemReg = #"""
         guard case .wine(let plan, _) = try GameLauncher.action(for: updated) else { Issue.record("expected wine"); return }
         #expect(plan.arguments.suffix(2) == ["-dx11", "two words"])
         #expect(plan.arguments.first?.hasSuffix("drive_c/Games/G/G.exe") == true)
+    }
+}
+
+@Suite struct PortableTests {
+    @Test func copiesTheProgramsFolderButNeverTheUsersFolders() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let loose = home.appendingPathComponent("Downloads/tool.exe")
+        #expect(Installation.portableSource(for: loose) == (loose, false))
+        #expect(Installation.portableSource(for: home.appendingPathComponent("game.exe")).wholeFolder == false)
+        #expect(Installation.portableSource(for: URL(fileURLWithPath: "/Volumes/USB/game.exe")).wholeFolder == false)
+        let game = home.appendingPathComponent("Downloads/Cool Game/bin/game.exe")
+        #expect(Installation.portableSource(for: game) == (game.deletingLastPathComponent(), true))
+    }
+
+    @Test func folderNamesAreWindowsSafe() {
+        #expect(Installation.safeFolderName("Game: Remastered?") == "Game_ Remastered_")
+        #expect(Installation.safeFolderName(" .. ") == "Program")
     }
 }

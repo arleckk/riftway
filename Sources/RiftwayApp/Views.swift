@@ -52,7 +52,10 @@ struct LibraryView: View {
         } message: {
             Text(library.problem ?? "")
         }
-        .onAppear { library.reload() }
+        .onAppear {
+            library.reload()
+            library.startWatching()
+        }
     }
 }
 
@@ -151,6 +154,9 @@ private struct GameGrid: View {
         Button("Abrir disco C: en Finder") { library.showDriveC(entry) }
         Button("Reconstruir app puente") { library.rebuildBridge(entry) }
         Divider()
+        if entry.game.uninstall?.uninstallString != nil {
+            Button("Desinstalar juego…") { library.uninstall(entry) }
+        }
         Button("Mover a la Papelera…", role: .destructive) { trashCandidate = entry }
     }
 }
@@ -193,6 +199,7 @@ private struct GameTile: View {
     private var subtitle: String {
         if isRunning { return "Abierto" }
         if entry.runtime == nil { return "Falta el runtime \(entry.record.runtimeVersion)" }
+        if GameLauncher.primaryIsMissing(entry) { return "Falta el programa: revisa Configurar Jugar" }
         switch entry.game.customLaunch {
         case .link?: return "Abre con tu enlace guardado"
         case .command?: return "Abre con tu comando"
@@ -249,9 +256,9 @@ struct AnalysisView: View {
                 Button("Mostrar en Finder") { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }
                 Button(remaining > 0 ? "Siguiente (\(remaining))" : "Cerrar", action: close)
                     .keyboardShortcut(.cancelAction)
-                Button("Instalar") { if let report = file.report { install(report) } }
+                Button(isPortable ? "Agregar a la biblioteca" : "Instalar") { if let report = file.report { install(report) } }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!isInstaller || !canInstall)
+                    .disabled(!(isInstaller || isPortable) || !canInstall)
             }
             .padding(16)
         }
@@ -263,10 +270,18 @@ struct AnalysisView: View {
         return false
     }
 
+    private var isPortable: Bool {
+        if case .portable = file.report?.kind { return true }
+        return false
+    }
+
     private var note: String? {
         guard let report = file.report else { return nil }
-        if case .portable = report.kind { return "Agregar programas sin instalador llega pronto." }
-        if isInstaller && !canInstall { return "Falta el runtime de Windows." }
+        if (isInstaller || isPortable) && !canInstall { return "Falta el runtime de Windows." }
+        if isPortable {
+            let (_, wholeFolder) = Installation.portableSource(for: report.file)
+            return wholeFolder ? "Se copia su carpeta a una botella nueva." : "Se copia el programa a una botella nueva."
+        }
         return nil
     }
 }
@@ -332,7 +347,7 @@ struct InstallView: View {
     private func stageText(_ stage: Installation.Stage) -> String {
         switch stage {
         case .creatingBottle: "Preparando una botella nueva de Windows…"
-        case .copyingInstaller: "Copiando el instalador a la botella…"
+        case .copyingInstaller: "Copiando a la botella…"
         case .runningInstaller: "Esperando al instalador…"
         case .discovering: "Buscando lo que instaló…"
         }

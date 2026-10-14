@@ -60,6 +60,29 @@ public enum GameLauncher {
         }
     }
 
+    /// The game's own uninstaller (its `UninstallString`): a program in the
+    /// bottle, or a Windows command such as `MsiExec.exe /X{…}`.
+    public static func uninstallPlan(for entry: LibraryEntry) throws -> LaunchPlan {
+        guard let setup = entry.setup else { throw Failure.runtimeMissing(entry.record.runtimeVersion) }
+        guard let command = entry.game.uninstall?.uninstallString, !command.isEmpty else { throw Failure.noProgram }
+        let args = WindowsCommandLine.split(command)
+        guard let program = args.first else { throw Failure.noProgram }
+        if program.count > 2, Array(program)[1] == ":" {
+            return try setup.bottle.launchPlan(windowsArguments: args)
+        }
+        return setup.plan("wine", args)
+    }
+
+    /// Whether the program Play starts is still in the bottle.
+    public static func primaryIsMissing(_ entry: LibraryEntry) -> Bool {
+        let path: String?
+        if case .command(let p, _)? = entry.game.customLaunch { path = p } else { path = entry.game.primary?.windowsPath }
+        guard let path else { return false }
+        let bottle = Bottle(name: entry.id, prefix: entry.root.appendingPathComponent("prefix").path, backend: .wine(wine: "/usr/bin/false"))
+        guard let file = bottle.unixURL(forWindowsPath: path) else { return true }
+        return !FileManager.default.fileExists(atPath: file.path)
+    }
+
     /// Waits until every Windows process in the bottle has exited: the game's
     /// session is over, and so are launchers it started.
     public static func waitForSessionEnd(_ entry: LibraryEntry) throws {

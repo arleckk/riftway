@@ -152,6 +152,29 @@ Implementado en `Sources/RiftwayCore/Analysis/` y `Sources/RiftwayApp/`:
 Pendiente: verificar firmas de MSI (hoy se reportan como presentes sin verificar),
 coincidencia con perfiles (M4) y el botón Instalar (M3).
 
+## Estado de M3
+
+Implementado (`Sources/RiftwayCore/Library/`, `Sources/RiftwayApp/LibraryModel.swift`):
+- §4: botella nueva por instalación con línea base (`baseline.json`), instalador y sus
+  archivos acompañantes copiados a `C:\ProgramData\Riftway\Installers\<id>\`, `.exe` directo
+  y `.msi` con `msiexec /i`, botón Detener (`wineserver -k`). El descubrimiento espera a
+  que Wine guarde el registro (el servidor lo escribe al salir; con un launcher abierto se
+  usa lo guardado y el redescubrimiento completa).
+- §5: `ShellLink` (MS-SHLLINK), accesos directos del menú Inicio y del escritorio,
+  **accesos directos web** (`.url`: DSR abre su sitio, cuyo Start usa `dsropen`),
+  desinstaladores, protocolos, extensiones, drivers de kernel, ejecutables nuevos; el
+  redescubrimiento corre cuando la botella se cierra, la haya abierto quien sea
+  (`WineServer.isRunning`: el candado del `wineserver`).
+- §6: puente por juego con ícono, protocolos y Jugar; la pantalla de resultado pregunta
+  una vez si el juego abre sus enlaces.
+- §7: programas sin instalador (carpeta propia o solo el `.exe`).
+- Biblioteca (PRD-04): Jugar/Detener, "Abierto" para cualquier sesión, otros programas,
+  Configurar Jugar (lo descubierto, el último enlace que mandó el sitio o un comando),
+  modo diagnóstico, overrides de DLL por programa, desinstalar, Papelera.
+
+Probado con DSR (NSIS) de punta a punta. Pendiente: el resto del corpus (Steam, GOG/Inno,
+MSI, WiX Burn).
+
 ## Fuera de alcance
 
 - Automatizar asistentes de instalación (clics por el usuario), salvo dependencias

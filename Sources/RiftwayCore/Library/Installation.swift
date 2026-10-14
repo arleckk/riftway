@@ -52,7 +52,8 @@ public final class Installation: @unchecked Sendable {
         let command: [String]
         switch report.kind {
         case .installer(.msi): command = ["msiexec", "/i"]
-        case .installer, .portable: command = []
+        case .installer: command = []
+        case .portable: return try addPortable(progress: progress)
         case .unsupported: throw Failure.notAnInstaller
         }
 
@@ -90,6 +91,57 @@ public final class Installation: @unchecked Sendable {
 
         let baseline = try PrefixSnapshot.read(from: root.appendingPathComponent(Library.baselineFile))
         return InstallDiscovery.discover(prefix: setup.prefix, baseline: baseline, product: report.product ?? name)
+    }
+
+    /// A program without an installer (PRD-01 §7): copied into the bottle's
+    /// `C:\Games\<name>`, its own folder with it when it has one.
+    private func addPortable(progress: @Sendable (Stage) -> Void) throws -> InstallResult {
+        progress(.creatingBottle)
+        try setup.create(name: name, runtimeVersion: runtime.version)
+        try check()
+        try PrefixSnapshot.capture(prefix: setup.prefix).write(to: root.appendingPathComponent(Library.baselineFile))
+        try setup.applyProgramOverrides()
+
+        progress(.copyingInstaller)
+        let (source, wholeFolder) = Self.portableSource(for: report.file)
+        let folderName = Self.safeFolderName(wholeFolder ? source.lastPathComponent : name)
+        let games = setup.prefix.appendingPathComponent("drive_c/Games", isDirectory: true)
+        try FileManager.default.createDirectory(at: games, withIntermediateDirectories: true)
+        let target = games.appendingPathComponent(folderName, isDirectory: true)
+        if wholeFolder {
+            try FileManager.default.copyItem(at: source, to: target)
+        } else {
+            try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: report.file, to: target.appendingPathComponent(report.file.lastPathComponent))
+        }
+        try check()
+
+        progress(.discovering)
+        let relative = wholeFolder ? String(report.file.path.dropFirst(source.path.count + 1)) : report.file.lastPathComponent
+        let windowsPath = #"C:\Games\"# + folderName + "\\" + relative.replacingOccurrences(of: "/", with: "\\")
+        var result = InstallResult()
+        let program = DiscoveredProgram.executable(windowsPath)
+        result.primary = DiscoveredProgram(name: name, target: program.target, iconLocation: windowsPath)
+        result.executables = [windowsPath]
+        return result
+    }
+
+    /// The program's folder, unless it is a folder of the user's (Downloads,
+    /// the Desktop…) or a disk's root: then only the program is copied.
+    public static func portableSource(for program: URL) -> (source: URL, wholeFolder: Bool) {
+        let folder = program.deletingLastPathComponent().standardizedFileURL
+        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+        let userFolders = ["", "Downloads", "Desktop", "Documents", "Applications", "Movies", "Music", "Pictures", "Public", "Library"]
+            .map { $0.isEmpty ? home.path : home.appendingPathComponent($0).path }
+        let shallow = folder.pathComponents.count <= 3  // "/", "/Applications", "/Volumes/Disk"
+        if shallow || userFolders.contains(folder.path) { return (program, false) }
+        return (folder, true)
+    }
+
+    static func safeFolderName(_ name: String) -> String {
+        let cleaned = name.unicodeScalars.map { "<>:\"/\\|?*".unicodeScalars.contains($0) || $0.value < 0x20 ? "_" : Character($0) }
+        let result = String(cleaned).trimmingCharacters(in: CharacterSet(charactersIn: " ."))
+        return result.isEmpty ? "Program" : result
     }
 
     /// Ends every Windows process in the bottle (the installer and anything it started).

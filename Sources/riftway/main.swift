@@ -566,6 +566,10 @@ do {
         for r in runtimes { print("\(r.version)  \(r.runtime.root)") }
     case "install":
         try await install(options)
+    case "running":
+        for e in Library().entries() {
+            print("\(e.game.name): \(WineServer.isRunning(prefix: e.root.appendingPathComponent("prefix")) ? "running" : "stopped")")
+        }
     case "play-setup":
         try playSetup(options)
     case "adopt":

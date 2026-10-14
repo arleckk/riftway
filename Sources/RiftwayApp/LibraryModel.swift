@@ -30,7 +30,12 @@ final class InstallJob: Identifiable {
 final class LibraryModel {
     private(set) var entries: [LibraryEntry] = []
     private(set) var runtimes: [RiftwayHome.InstalledRuntime] = []
+    /// Games whose bottle has programs open, however they were started (the
+    /// app, the game's site through its bridge, a launcher).
     private(set) var running: Set<String> = []
+    /// Games started from the app whose Wine server may not be up yet.
+    private var starting: [String: Date] = [:]
+    private var watcher: Task<Void, Never>?
     private(set) var icons: [String: NSImage] = [:]
     var job: InstallJob?
     /// An error to show in an alert.
@@ -38,6 +43,51 @@ final class LibraryModel {
 
     let library = Library()
     private let log = Log()
+
+    /// Checks every two seconds which bottles are open. When one closes, its
+    /// bottle is searched again: launchers install programs and protocols
+    /// after the installer (PRD-01 R5.2).
+    func startWatching() {
+        guard watcher == nil else { return }
+        watcher = Task { [weak self] in
+            while !Task.isCancelled {
+                self?.refreshRunning()
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    private func refreshRunning() {
+        var now: Set<String> = []
+        for entry in entries where WineServer.isRunning(prefix: entry.root.appendingPathComponent("prefix")) {
+            now.insert(entry.id)
+            starting[entry.id] = nil
+        }
+        // Wine takes a moment to start; give a launch 20 s to show up.
+        starting = starting.filter { Date().timeIntervalSince($0.value) < 20 }
+        now.formUnion(starting.keys)
+        let closed = running.subtracting(now)
+        if now != running { running = now }
+        for id in closed {
+            if let entry = entries.first(where: { $0.id == id }) { sessionEnded(entry) }
+        }
+    }
+
+    private func sessionEnded(_ entry: LibraryEntry) {
+        let library = library
+        let shim = shimBinary
+        Task {
+            let newSchemes: [String] = await Task.detached {
+                guard let (_, schemes) = try? library.rediscover(entry) else { return [] }
+                if !schemes.isEmpty, entry.game.bridge != nil, let updated = library.entry(at: entry.root) {
+                    _ = try? GameLauncher.makeBridge(for: updated, shimBinary: shim, home: library.home)
+                }
+                return schemes
+            }.value
+            if !newSchemes.isEmpty { log.write("app: \(entry.game.name) registered \(newSchemes.joined(separator: ", "))") }
+            reload()
+        }
+    }
 
     func reload() {
         runtimes = library.home.installedRuntimes()
@@ -159,7 +209,8 @@ final class LibraryModel {
             case .wine(let plan, let logFile):
                 let pid = try Launcher.start(plan, outputLog: logFile)
                 log.write("app: started \(entry.game.name) (pid \(pid))")
-                watchSession(entry)
+                starting[entry.id] = Date()
+                running.insert(entry.id)
             }
             var game = entry.game
             game.lastPlayed = Date()
@@ -169,25 +220,16 @@ final class LibraryModel {
         }
     }
 
-    /// Marks the game as running until its bottle's last program exits, then
-    /// looks for what a launcher installed meanwhile (PRD-01 R5.2).
-    private func watchSession(_ entry: LibraryEntry) {
-        guard !running.contains(entry.id) else { return }
-        running.insert(entry.id)
-        let library = library
-        let shim = shimBinary
-        Task {
-            let newSchemes: [String] = await Task.detached {
-                try? GameLauncher.waitForSessionEnd(entry)
-                guard let (_, schemes) = try? library.rediscover(entry) else { return [] }
-                if !schemes.isEmpty, entry.game.bridge != nil, let updated = library.entry(at: entry.root) {
-                    _ = try? GameLauncher.makeBridge(for: updated, shimBinary: shim, home: library.home)
-                }
-                return schemes
-            }.value
-            running.remove(entry.id)
-            if !newSchemes.isEmpty { log.write("app: \(entry.game.name) registered \(newSchemes.joined(separator: ", "))") }
-            reload()
+    /// Runs the game's uninstaller in its bottle; the bottle stays (its saves
+    /// may be there) and the search after the session updates the game.
+    func uninstall(_ entry: LibraryEntry) {
+        do {
+            let pid = try Launcher.start(try GameLauncher.uninstallPlan(for: entry))
+            log.write("app: started the uninstaller of \(entry.game.name) (pid \(pid))")
+            starting[entry.id] = Date()
+            running.insert(entry.id)
+        } catch {
+            problem = "\(error)"
         }
     }
 
