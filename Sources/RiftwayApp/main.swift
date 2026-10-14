@@ -23,9 +23,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Riftway"
         window.contentMinSize = NSSize(width: 600, height: 420)
-        window.contentViewController = NSHostingController(rootView: LibraryView(model: model, library: library))
+        let host = NSHostingController(rootView: LibraryView(model: model, library: library)
+            .frame(minWidth: 600, minHeight: 420))
+        // The window keeps its own size; the library's grid has no ideal width
+        // and would shrink it to a sliver.
+        host.sizingOptions = []
+        window.contentViewController = host
+        window.setContentSize(NSSize(width: 820, height: 560))
         window.setFrameAutosaveName("Main")
-        if !window.setFrameUsingName("Main") { window.center() }
+        if !window.setFrameUsingName("Main") || window.frame.width < 600 || window.frame.height < 420 {
+            window.setContentSize(NSSize(width: 820, height: 560))
+            window.center()
+        }
         window.isReleasedWhenClosed = false
         window.makeKeyAndOrderFront(nil)
         self.window = window
