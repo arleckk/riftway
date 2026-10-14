@@ -22,6 +22,26 @@ import Testing
         #expect(!epic.allows(URL(string: "https://other.akamaized.net/EpicInstaller.msi")!))
     }
 
+    @Test func knowsAnInstalledLauncherByItsProfileOrItsProgram() throws {
+        func entry(_ id: String, program: String?, profile: String? = nil, store: StoreLink? = nil) -> LibraryEntry {
+            var game = Game(id: id, name: id, primary: program.map { DiscoveredProgram.executable($0) })
+            game.store = store
+            let root = URL(fileURLWithPath: "/tmp/\(id)")
+            return LibraryEntry(game: game, root: root, folder: root,
+                                record: BottleRecord(name: id, runtimeVersion: "rw-1", created: Date(), options: GameOptions(), profile: profile))
+        }
+        let steam = try #require(StoreLaunchers.launcher("steam"))
+        let battlenet = try #require(StoreLaunchers.launcher("battlenet"))
+        #expect(steam.isInstalled(as: entry("a", program: #"C:\Program Files (x86)\Steam\Steam.exe"#)))
+        #expect(steam.isInstalled(as: entry("b", program: nil, profile: "steam")))
+        #expect(battlenet.isInstalled(as: entry("c", program: #"C:\Program Files (x86)\Battle.net\Battle.net Launcher.exe"#)))
+        #expect(!steam.isInstalled(as: entry("d", program: #"C:\Games\DSR\DSR.exe"#)))
+        // A game Steam installed lives in Steam's bottle but is not Steam.
+        let game = entry("945360", program: #"C:\Program Files (x86)\Steam\steamapps\common\Among Us\Among Us.exe"#, profile: "steam",
+                         store: StoreLink(store: .steam, appID: "945360", installDir: #"C:\Program Files (x86)\Steam\steamapps\common\Among Us"#))
+        #expect(!steam.isInstalled(as: game))
+    }
+
     @Test func keepsOnlyInstallersThePublisherSigned() throws {
         let steam = try #require(StoreLaunchers.launcher("steam"))
         try steam.check(report(.installer(.nsis), .signed(signer: "Valve Corp.", trusted: false)))

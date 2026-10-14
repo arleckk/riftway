@@ -168,7 +168,7 @@ struct LibraryView: View {
         switch item ?? .library {
         case .library: LibraryPage(model: model, library: library, search: $search, isTargeted: isTargeted, pad: pad, open: open)
         case .playing: PlayingPage(library: library, pad: pad, open: open)
-        case .launchers: LaunchersPage(model: model)
+        case .launchers: LaunchersPage(model: model, library: library)
         case .runtimes: RuntimesPage(library: library)
         }
     }

@@ -501,7 +501,8 @@ private struct StoreGamesBlock: View {
     @State private var installed: [InstalledStoreGame] = []
 
     var body: some View {
-        Group {
+        // A VStack, not a Group: the task has to run while the list is empty.
+        VStack(alignment: .leading, spacing: 0) {
             if !installed.isEmpty {
                 Block(title: "Juegos de \(launcher.game.name)") {
                     VStack(spacing: 0) {

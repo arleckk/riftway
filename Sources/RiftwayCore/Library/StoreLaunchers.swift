@@ -17,8 +17,11 @@ public struct StoreLauncher: Sendable, Equatable, Identifiable {
     public let signer: String?
     /// Installed and opened on Riftway's runtime (the corpus, PLAN.md).
     public let tested: Bool
+    /// The installed launcher's programs (file names), to recognize it in the library.
+    public let programs: [String]
 
-    public init(id: String, name: String, publisher: String, url: URL, hosts: [String], signer: String?, tested: Bool) {
+    public init(id: String, name: String, publisher: String, url: URL, hosts: [String], signer: String?, tested: Bool,
+                programs: [String] = []) {
         self.id = id
         self.name = name
         self.publisher = publisher
@@ -26,6 +29,17 @@ public struct StoreLauncher: Sendable, Equatable, Identifiable {
         self.hosts = hosts
         self.signer = signer
         self.tested = tested
+        self.programs = programs
+    }
+
+    /// Whether this library entry is this launcher: its profile, or the
+    /// program Play starts. A launcher's games (their own entries) are not.
+    public func isInstalled(as entry: LibraryEntry) -> Bool {
+        guard entry.game.store == nil else { return false }
+        if entry.record.profile == id { return true }
+        guard case .executable(let path, _)? = entry.game.primary?.target,
+              let file = path.split(whereSeparator: { $0 == "\\" || $0 == "/" }).last else { return false }
+        return programs.contains { $0.caseInsensitiveCompare(String(file)) == .orderedSame }
     }
 
     /// Whether a download may come from `url`: HTTPS, on one of `hosts`.
@@ -63,26 +77,37 @@ public enum StoreLaunchers {
     public static let all: [StoreLauncher] = [
         StoreLauncher(id: "steam", name: "Steam", publisher: "Valve",
                  url: URL(string: "https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe")!,
-                 hosts: ["steamstatic.com"], signer: "Valve", tested: true),
+                 hosts: ["steamstatic.com"], signer: "Valve", tested: true,
+                 programs: ["steam.exe"]),
         StoreLauncher(id: "epic", name: "Epic Games Launcher", publisher: "Epic Games",
                  url: URL(string: "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi")!,
-                 hosts: ["epicgames.com", "epicgames-download1.akamaized.net"], signer: nil, tested: true),
+                 hosts: ["epicgames.com", "epicgames-download1.akamaized.net"], signer: nil, tested: true,
+                 programs: ["EpicGamesLauncher.exe"]),
         StoreLauncher(id: "gog", name: "GOG Galaxy", publisher: "GOG",
                  url: URL(string: "https://webinstallers.gog-statics.com/download/GOG_Galaxy_2.0.exe")!,
-                 hosts: ["gog-statics.com", "gog.com"], signer: "GOG", tested: false),
+                 hosts: ["gog-statics.com", "gog.com"], signer: "GOG", tested: false,
+                 programs: ["GalaxyClient.exe"]),
         StoreLauncher(id: "ea", name: "EA app", publisher: "Electronic Arts",
                  url: URL(string: "https://origin-a.akamaihd.net/EA-Desktop-Client-Download/installer-releases/EAappInstaller.exe")!,
-                 hosts: ["origin-a.akamaihd.net"], signer: "Electronic Arts", tested: false),
+                 hosts: ["origin-a.akamaihd.net"], signer: "Electronic Arts", tested: false,
+                 programs: ["EADesktop.exe", "EALauncher.exe"]),
         StoreLauncher(id: "ubisoft", name: "Ubisoft Connect", publisher: "Ubisoft",
                  url: URL(string: "https://static3.cdn.ubi.com/orbit/launcher_installer/UbisoftConnectInstaller.exe")!,
-                 hosts: ["cdn.ubi.com"], signer: "Ubisoft", tested: false),
+                 hosts: ["cdn.ubi.com"], signer: "Ubisoft", tested: false,
+                 programs: ["UbisoftConnect.exe", "upc.exe"]),
         StoreLauncher(id: "battlenet", name: "Battle.net", publisher: "Blizzard",
                  url: URL(string: "https://downloader.battle.net/download/getInstaller?os=win&installer=Battle.net-Setup.exe")!,
-                 hosts: ["battle.net"], signer: "Blizzard", tested: false),
+                 hosts: ["battle.net"], signer: "Blizzard", tested: false,
+                 programs: ["Battle.net Launcher.exe", "Battle.net.exe"]),
     ]
 
     public static func launcher(_ id: String) -> StoreLauncher? {
         all.first { $0.id == id.lowercased() }
+    }
+
+    /// The library entries that are this launcher, installed.
+    public static func installed(_ launcher: StoreLauncher, in entries: [LibraryEntry]) -> [LibraryEntry] {
+        entries.filter { launcher.isInstalled(as: $0) }
     }
 }
 

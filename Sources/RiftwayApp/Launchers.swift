@@ -7,24 +7,25 @@ import SwiftUI
 /// installs like any installer.
 struct LaunchersPage: View {
     @Bindable var model: AppModel
+    @Bindable var library: LibraryModel
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 14) {
                 Text("En una Mac, sus sitios te dan la app de macOS. Riftway descarga el instalador de Windows del servidor del fabricante y solo lo usa si él lo firmó; luego lo instalas como cualquier juego.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 VStack(spacing: 0) {
                     ForEach(StoreLaunchers.all) { launcher in
-                        LauncherRow(launcher: launcher, model: model)
+                        LauncherRow(launcher: launcher, installed: StoreLaunchers.installed(launcher, in: library.entries).first,
+                                    model: model, library: library)
                         if launcher.id != StoreLaunchers.all.last?.id { Divider().padding(.leading, 76) }
                     }
                 }
                 .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.card))
                 Text("Los que dicen \"Sin probar\" pueden no abrir todavía en Riftway.").font(.caption).foregroundStyle(.secondary)
             }
-            .frame(maxWidth: 720, alignment: .leading)
-            .padding(24)
+            .padding(.horizontal, 32).padding(.vertical, 24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .navigationTitle("Launchers")
@@ -34,7 +35,10 @@ struct LaunchersPage: View {
 
 private struct LauncherRow: View {
     let launcher: StoreLauncher
+    /// Its entry in the library, when it is installed.
+    let installed: LibraryEntry?
     @Bindable var model: AppModel
+    @Bindable var library: LibraryModel
 
     var body: some View {
         HStack(spacing: 14) {
@@ -57,8 +61,12 @@ private struct LauncherRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(launcher.name).font(.headline)
                 HStack(spacing: 6) {
-                    Text(launcher.tested ? "Probado con Riftway" : "Sin probar")
-                        .foregroundStyle(launcher.tested ? Theme.verified : .secondary)
+                    if installed != nil {
+                        Label("Instalado", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.verified)
+                    } else {
+                        Text(launcher.tested ? "Probado con Riftway" : "Sin probar")
+                            .foregroundStyle(launcher.tested ? Theme.verified : .secondary)
+                    }
                     Text("·").foregroundStyle(.tertiary)
                     Text(launcher.signer.map { _ in "Firmado por \(launcher.publisher)" } ?? "Del servidor de \(launcher.publisher) (MSI)")
                         .foregroundStyle(.secondary)
@@ -76,6 +84,16 @@ private struct LauncherRow: View {
                     ProgressView(value: progress).frame(width: 120)
                     Button("Cancelar") { model.cancelLauncher(launcher) }.controlSize(.small)
                 }
+            } else if let installed {
+                Button("Abrir") { library.requestedPage = installed.id }
+                    .help("Su página en la biblioteca")
+                Menu {
+                    Button("Descargar el instalador otra vez") { model.getLauncher(launcher) }
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .help("Más opciones")
             } else {
                 Button("Descargar") { model.getLauncher(launcher) }
                     .help("Descarga \(launcher.url.host ?? "") y luego muestra el análisis del instalador")
