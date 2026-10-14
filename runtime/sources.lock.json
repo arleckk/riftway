@@ -41,8 +41,12 @@
     }
   },
   "deviations_from_recall": [
-    "The --jobs limit of Recall's build scripts is raised from 4 to 32 in the local clone; it changes build parallelism only, not outputs.",
-    "Soju's ncrypt-persisted-keys.patch (persistent CNG keys, for the Epic Games Launcher's DPoP) is not applied: Soju's repository is GPL-3.0 and its NOTICE offers only winemac-no-dock-icon.patch (whose code wine-v1-canvas.patch carries) under Wine's LGPL-2.1+, so it would make the runtime GPL-3.0. runtime/build.py removes it from Recall's list and from an already patched tree.",
+    "Wine and DXMT are built by Riftway's recipe (runtime/recipe/wine.py and dxmt.py), derived from Recall's build_portable_runtime.py and build_portable_dxmt.py with Recall's patches read from its pinned clone and checked by hash.",
+    "No Whisky Libraries.tar.gz: Wine links GnuTLS, inotify and SDL2 from clean-deps (built from source by Recall's build_portable_dependencies.py) and FreeType from runtime/recipe/wine.py's own build (freetype-install), the libraries the runtime ships.",
+    "No Soju patches: ncrypt-persisted-keys.patch is GPL-3.0 (Soju's NOTICE offers only winemac-no-dock-icon.patch, whose code wine-v1-canvas.patch carries, under Wine's LGPL-2.1+). Soju's source is only read for the libinotify-kqueue headers (MIT).",
+    "No MetalFX: DXMT without dxmt-metalfx-upscaling.patch and with -Denable_nvapi=false -Denable_nvngx=false, so no NVAPI, NGX or D3D12 stand-in and no self-signed nvngx.dll; DXMT's diagnostic programs are not installed.",
+    "Binaries map the build workspace to /build/riftway (Recall: /build/overwatch-2-mac).",
+    "The --jobs limit of Recall's native dependency script is raised from 4 to 32 in the local clone; it changes build parallelism only, not outputs.",
     "Wine's winegstreamer (Recall builds --without-gstreamer) is built by runtime/media.py in a second Wine tree from the same patched source, against GLib and GStreamer from crossover-sources-26.3.0; decoders are macOS's (applemedia), no FFmpeg."
   ],
   "media": {

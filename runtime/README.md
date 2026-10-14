@@ -3,6 +3,15 @@
 Herramientas para compilar el runtime propio (Wine de las fuentes de CrossOver + DXMT).
 El plan completo está en [docs/RUNTIME-BUILD.md](../docs/RUNTIME-BUILD.md).
 
+## Fase 2: receta propia
+
+Desde `rw-0.1.4-spike`, Wine y DXMT salen de [`recipe/wine.py`](recipe/wine.py) y
+[`recipe/dxmt.py`](recipe/dxmt.py), derivados de los scripts de Recall (Apache 2.0) sin
+las librerías de Whisky, sin MetalFX (ni sustitutos de NVAPI, NGX o D3D12) y sin el parche
+GPL-3.0 de Soju, con las rutas mapeadas a `/build/riftway`. Los parches de Recall se leen de
+su clon fijado y se verifican por hash; las dependencias nativas siguen saliendo de su
+script. Los pasos de abajo son los mismos.
+
 ## Fase 1: reproducir la receta de Recall
 
 Antes de generalizar nada, se compila exactamente lo que compila Recall, con sus

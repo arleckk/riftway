@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-"""Riftway runtime build, phase 1: reproduce Recall's recipe as is.
+"""Riftway runtime build, phase 2: Riftway's own recipe (runtime/recipe/), derived
+from Recall's, without Whisky's libraries, MetalFX or Soju's GPL-3.0 patch.
 
 Everything lives under work/runtime/ (git-ignored):
 
   toolchains/   llvm-mingw, LLVM 15 x86_64, bison, a Python venv with meson and ninja
-  recall/       Recall at the commit pinned in runtime/sources.lock.json
-  phase-2/      Recall's build workspace (its scripts require that name)
+  recall/       Recall at the commit pinned in runtime/sources.lock.json (its patches,
+                and its native dependency script)
+  phase-2/      the build workspace
 
   runtime/build.py tools     fetch and verify toolchains, clone Recall
   runtime/build.py check     report what is missing
-  runtime/build.py fetch     download Recall's pinned sources (Wine, Soju, FreeType, Mono…)
-  runtime/build.py deps      native dependencies (GnuTLS, SDL2, MoltenVK…)
-  runtime/build.py wine      Wine for i386 + x86_64 (WoW64)
-  runtime/build.py dxmt      DXMT against the fresh Wine build
+  runtime/build.py fetch     download the pinned sources (Wine, FreeType, Soju, Mono)
+  runtime/build.py deps      native dependencies (GnuTLS, SDL2, MoltenVK…), Recall's script
+  runtime/build.py wine      Wine for i386 + x86_64 (WoW64), runtime/recipe/wine.py
+  runtime/build.py dxmt      DXMT against the Wine build, runtime/recipe/dxmt.py
   runtime/build.py media     GLib + GStreamer + winegstreamer (video and audio decoding)
   runtime/build.py smoke VERSION   fresh bottle on work/runtime/artifacts/VERSION
                                    (runtime/assemble.py makes it): Windows version,
@@ -24,7 +26,6 @@ import argparse
 import hashlib
 import json
 import os
-import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -39,10 +40,6 @@ DOWNLOADS = WORK / 'downloads'
 RECALL = WORK / 'recall'
 PHASE2 = WORK / 'phase-2'
 CLT_SDK = Path('/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk')
-# Soju patches Recall applies that Riftway leaves out (sources.lock.json,
-# deviations_from_recall): Soju's repository is GPL-3.0 and offers only its
-# Dock icon patch under Wine's LGPL, so these would make the runtime GPL-3.0.
-EXCLUDED_SOJU_PATCHES = ['ncrypt-persisted-keys.patch']
 
 
 def run(*args, **kwargs):
@@ -113,46 +110,17 @@ def tools(_):
     if head != recall['commit']:
         run('git', 'checkout', '--quiet', '--detach', recall['commit'], cwd=RECALL)
     # Deviation (sources.lock.json): allow more than four parallel jobs.
-    for script in ('build_portable_runtime.py', 'build_portable_dependencies.py', 'build_portable_dxmt.py'):
+    for script in ('build_portable_dependencies.py',):
         path = RECALL / 'scripts' / script
         text = path.read_text()
         if 'range(1,5)' in text or 'range(1, 5)' in text:
             path.write_text(text.replace('range(1,5)', 'range(1,33)').replace('range(1, 5)', 'range(1, 33)'))
-    exclude_soju_patches()
     # Recall's assembler reads toolchains from <recall>/runtime/toolchains.
     link = RECALL / 'runtime/toolchains'
     link.parent.mkdir(exist_ok=True)
     if not link.is_symlink():
         link.symlink_to(TOOLS)
     check(None)
-
-
-def exclude_soju_patches():
-    """Takes the excluded patches out of Recall's list. A Wine tree patched with
-    another list is extracted again: Recall's recipe cannot patch a tree twice."""
-    script = RECALL / 'scripts/build_portable_runtime.py'
-    text = script.read_text()
-    for name in EXCLUDED_SOJU_PATCHES:
-        text = re.sub(r"\n    '" + re.escape(name) + r"': '[0-9a-f]{64}',", '', text)
-    script.write_text(text)
-    sources = PHASE2 / 'sources/wine'
-    marker = PHASE2 / 'sources/wine-excluded-patches.json'
-    wanted = json.dumps(EXCLUDED_SOJU_PATCHES) + '\n'
-    if sources.exists() and (not marker.exists() or marker.read_text() != wanted):
-        print('Extracting the Wine sources again, without ' + ', '.join(EXCLUDED_SOJU_PATCHES), flush=True)
-        shutil.rmtree(sources)
-        # The extracted files keep their archive dates, older than the objects built
-        # from the patched ones: drop those objects so make rebuilds them.
-        for name in EXCLUDED_SOJU_PATCHES:
-            patch = next((PHASE2 / 'sources/soju').glob('soju-*/patches/' + name))
-            for line in patch.read_text().splitlines():
-                if line.startswith('+++ b/'):
-                    built = PHASE2 / 'wine-build' / Path(line[6:]).parent
-                    for item in built.rglob('*') if built.is_dir() else []:
-                        if item.is_file() and item.suffix in ('.o', '.a', '.dll', '.so', '.res'):
-                            item.unlink()
-    if sources.parent.is_dir():
-        marker.write_text(wanted)
 
 
 def check(_):
@@ -224,6 +192,10 @@ def recall_script(name, *extra):
     run(sys.executable, RECALL / 'scripts' / name, '--workspace', PHASE2, *extra, cwd=RECALL)
 
 
+def recipe(name, *extra):
+    run(sys.executable, ROOT / 'runtime/recipe' / name, '--workspace', PHASE2, '--toolchains', TOOLS, *extra)
+
+
 def jobs():
     return str(min(32, os.cpu_count() or 4))
 
@@ -239,12 +211,11 @@ def main():
     elif step == 'check':
         check(None)
     elif step == 'fetch':
-        recall_script('build_portable_runtime.py', '--toolchains', TOOLS, '--download-only')
+        recipe('wine.py', '--download-only')
     elif step == 'deps':
         recall_script('build_portable_dependencies.py', '--jobs', jobs())
     elif step == 'wine':
-        exclude_soju_patches()
-        recall_script('build_portable_runtime.py', '--toolchains', TOOLS, '--jobs', jobs())
+        recipe('wine.py', '--jobs', jobs())
     elif step == 'media':
         run(sys.executable, ROOT / 'runtime/media.py', jobs())
     elif step == 'smoke':
@@ -252,12 +223,7 @@ def main():
             parser.error('smoke needs the runtime version (work/runtime/artifacts/<version>)')
         smoke(parsed.version)
     elif step == 'dxmt':
-        # Recall signs DXMT's DLSS stand-in (nvngx.dll) with a local self-signed
-        # certificate; NVIDIA's loader only checks that a signature exists.
-        signing = RECALL / 'runtime/signing/recall-nvngx'
-        if not signing.exists():
-            run(sys.executable, RECALL / 'scripts/sign_pe.py', 'create-certificate', signing, cwd=RECALL)
-        recall_script('build_portable_dxmt.py', '--toolchains', TOOLS, '--jobs', jobs())
+        recipe('dxmt.py', '--jobs', jobs())
 
 
 if __name__ == '__main__':

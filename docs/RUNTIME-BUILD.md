@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Estado | **Fases 0 y 1 completadas el 2026-10-13** (ver "Resultados de la fase 1"); fase 2 en curso |
+| Estado | **Fases 0 y 1 completadas el 2026-10-13** (ver "Resultados de la fase 1"); fase 2 en curso: receta propia en `runtime/recipe/` desde `rw-0.1.4-spike` |
 | Hito | M2 ([PRD-02](prd/PRD-02-runtime-y-botellas.md)) |
 | Referencia | Recall (`github.com/AsherJN/recall`), clon de solo lectura revisado el 2026-10-13 |
 
@@ -49,14 +49,25 @@ Prueba de humo en una botella nueva (`BottleSetup` de `RiftwayCore`):
 Pendiente de la fase 1 respecto a la receta de Recall: el bundle de Game Mode (paso 8) y
 `libd3dshared.dylib` (excluido por decisión).
 
-### Fase 2: generalización (siguiente)
+### Fase 2: generalización (en curso)
 
-1. Quitar `Libraries.tar.gz` de Whisky del enlace de Wine (hoy la receta lo sigue usando).
-2. Compilar DXMT sin MetalFX (`-Denable_nvapi=false -Denable_nvngx=false`, sin el parche ni el
-   certificado) y sin los ejecutables de diagnóstico.
+Desde `rw-0.1.4-spike` (2026-10-14) Wine y DXMT se compilan con la receta de Riftway,
+`runtime/recipe/wine.py` y `runtime/recipe/dxmt.py`, derivada de los scripts de Recall
+(Apache 2.0, con atribución); los parches de Recall se leen de su clon fijado y se verifican
+por hash. Las dependencias nativas siguen saliendo del script de Recall
+(`build_portable_dependencies.py`, que todavía mapea sus rutas a `/build/overwatch-2-mac`;
+ningún binario del runtime lleva esa cadena).
+
+1. ✅ Sin `Libraries.tar.gz` de Whisky: Wine enlaza GnuTLS, inotify y SDL2 de `clean-deps` y
+   FreeType de su propio build (`freetype-install`), las mismas librerías que se distribuyen.
+   Probado borrando la descarga, `deps/` y el árbol extraído y recompilando.
+2. ✅ DXMT sin MetalFX: sin `dxmt-metalfx-upscaling.patch`, con
+   `-Denable_nvapi=false -Denable_nvngx=false`, sin certificado y sin instalar los programas
+   de diagnóstico. El runtime ya no trae `nvapi64.dll` ni `nvngx.dll`; el `d3d12.dll` que
+   queda es el de Wine (vkd3d), que Riftway apaga en cada botella.
 3. Parche `WINE_GAME_MODE_APP` y bundle genérico de Game Mode.
 4. Decidir la convivencia DXMT/wined3d para D3D11 de 64 bits (sección 4.3).
-5. Cambiar el prefix-map a `/build/riftway`.
+5. ✅ Prefix-map `/build/riftway` en Wine, FreeType, DXMT y winegstreamer.
 6. Dos compilaciones limpias con el mismo manifiesto (reproducibilidad).
 7. ✅ Revisión de licencia del código de Soju (2026-10-14, ver "Licencia del código de Soju"):
    se quita `ncrypt-persisted-keys.patch` (GPL-3.0) desde `rw-0.1.3-spike`.
@@ -107,7 +118,7 @@ cual a su propio `sources.lock.json`.
 | Bison | 3.8.2 (`docs/SOURCES.json`), en `toolchains/bison/bin` | `brew install bison` (keg-only, en `/opt/homebrew/opt/bison/bin`) o compilar `bison-3.8.2` | No instalado |
 | Meson + Ninja | en `toolchains/python/bin` (venv) | `python3 -m venv` + `pip install meson ninja`, o `brew install meson ninja`. Recall no fija la versión de Meson **[sin verificar cuál usó]** | No instalados |
 | Python | 3.10+ | Homebrew (`python@3.12` ya está) | Presente |
-| OpenSSL 3 | Solo para firmar `nvngx.dll` (`scripts/sign_pe.py`) | `brew install openssl@3` | Presente (no hace falta si se omite MetalFX) |
+| OpenSSL 3 | Solo para firmar `nvngx.dll` (`scripts/sign_pe.py`) | `brew install openssl@3` | Ya no hace falta: Riftway no compila MetalFX |
 | flex, make, git, curl, lipo, otool, install_name_tool, codesign | Del sistema / CLT | CLT | Presentes |
 | Rosetta 2 en la máquina de compilación | Los `configure` corren con `/usr/bin/arch -x86_64` | `softwareupdate --install-rosetta` | **[sin verificar]** |
 
@@ -134,7 +145,7 @@ mismo contrato) que lea un `sources.lock.json` y un `patches/series` propios.
   descarga a `.part`, compara SHA-256 y solo entonces renombra. La extracción usa
   `tarfile.extractall(filter='data')` y un marcador `.extracted.json` con el hash.
 - Riftway: igual, pero con un único archivo de bloqueo. Cachear `downloads/` en CI por
-  hash. Quitar la descarga de Whisky (ver paso 4).
+  hash. ✅ Sin la descarga de Whisky (`runtime/recipe/wine.py`).
 
 ### Paso 2. Dependencias nativas (x86_64)
 
@@ -184,10 +195,10 @@ mismo contrato) que lea un `sources.lock.json` y un `patches/series` propios.
   instalador de Recall exige ambos árboles (`lib/wine/x86_64-windows` e `i386-windows`, ver
   `verifyRuntime` en `scripts/portable_setup.m`) y crea botellas con `WINEARCH=win64`. No
   hay Wine de 32 bits en el lado Unix (macOS no ejecuta i386). Esto cubre R1.1 del PRD-02.
-- Riftway: quitar `Libraries.tar.gz` de Whisky. En Recall solo se copia a `<ws>/deps/lib`
-  para enlazar (`-L<deps>/lib`); lo que se distribuye sale de `clean-deps` y FreeType
-  (`assemble_portable_runtime.py`, `available`). Apuntar `GNUTLS_LIBS`/`INOTIFY_LIBS` a
-  `clean-deps/lib` **[sin verificar que basta]**, y así se cierra el pendiente de licencias.
+- Riftway: ✅ sin `Libraries.tar.gz` de Whisky (en Recall solo se copiaba a `<ws>/deps/lib`
+  para enlazar). `runtime/recipe/wine.py` apunta `GNUTLS_LIBS`, `INOTIFY_LIBS` y `SDL2_LIBS` a
+  `clean-deps/lib` y FreeType a `freetype-install`; basta, y se cierra el pendiente de
+  licencias de Whisky.
 
 ### Paso 5. Compilar e instalar Wine
 
@@ -315,7 +326,7 @@ mismo contrato) que lea un `sources.lock.json` y un `patches/series` propios.
 | `scripts/build_release_dmg.py` | perfil de notarización `overwatch-2-mac-notary` | `riftway-notary` |
 | `docs/candidate-parity-contract.json` | `DXMT_PIPELINE_CACHE_NAMESPACE=ow2-source-v1`, `WINEMAC_MOUSELOOK=Overwatch.exe`, `WINE_GAME_MODE=Overwatch.exe` | valores por perfil |
 | `config/dxmt-source60-1200.conf` | sección `[Overwatch.exe]` | generado desde `dxmt_conf` del perfil |
-| `scripts/build_portable_dxmt.py` | certificado `runtime/signing/recall-nvngx` | no aplica si se omite MetalFX |
+| `scripts/build_portable_dxmt.py` | certificado `runtime/signing/recall-nvngx` | ✅ no aplica: `runtime/recipe/dxmt.py` no compila MetalFX |
 
 ---
 
@@ -330,7 +341,7 @@ serializar cada lista desde el perfil (`game.<VAR>` como arreglo, PRD-05) con su
 | 1 | `dxmt-v1-private.patch` (6072) | Canvas de pantalla completa, presentación y caché de shaders/pipelines; opciones `d3d11.shaderCompilerThreads`, `…NormalPriority`, `dxgi.fullscreenCanvas*`, `dxgi.nativeFullscreen`, `dxgi.maxFrameLatency`, `dxgi.sharpPresentation`; caché por `DXMT_PIPELINE_CACHE_*`; logs por env | MIXTO: mecanismos genéricos, activados por `dxmt.conf`/env, afinados para Overwatch (`patches/README.md`) | Conservar y generalizar: valores por defecto de upstream; activar por perfil; `DXMT_PIPELINE_CACHE_NAMESPACE` por juego. Depende del #5 |
 | 2 | `dxmt-v1-performance.patch` (10014) | Conserva la compresión sin pérdida de Apple en render targets marcados UAV hasta su primer uso real; esperas CPU/GPU por evento; *frame pacing* (`dxgi.presentPacing*`); `DXMT_PREPARE_SHADERS=1`; grabador/replay y benchmarks por env; `d3d12stub` | MIXTO (mayormente genérico) | Conservar; probar con el corpus. La compresión parece siempre activa **[sin verificar si tiene interruptor]**: agregar uno si un juego falla |
 | 3 | `dxmt-portable-metal.patch` (18) | Pasa `metal`/`metallib` por `portable_metal.py` para no incrustar rutas | GENÉRICO (build) | Conservar |
-| 4 | `dxmt-metalfx-upscaling.patch` (1413) | Con `DXMT_ENABLE_NVEXT=1` se reporta una RTX 4090, NVAPI/NGX simulados, DLSS sobre MetalFX, `d3d12.dll` nulo para Streamline; requiere `nvngx.dll` firmado con Authenticode | ESPECÍFICO DE OVERWATCH (calibrado a su Streamline y rango DLSS) | Quitar en v1. Evaluar después por perfil; hacerse pasar por NVIDIA puede chocar con anti-cheats |
+| 4 | `dxmt-metalfx-upscaling.patch` (1413) | Con `DXMT_ENABLE_NVEXT=1` se reporta una RTX 4090, NVAPI/NGX simulados, DLSS sobre MetalFX, `d3d12.dll` nulo para Streamline; requiere `nvngx.dll` firmado con Authenticode | ESPECÍFICO DE OVERWATCH (calibrado a su Streamline y rango DLSS) | **Quitado desde `rw-0.1.4-spike`**. Evaluar después por perfil; hacerse pasar por NVIDIA puede chocar con anti-cheats |
 | 5 | `wine-v1-canvas.patch` (1070) | Canvas fijo en pantalla completa nativa del Mac driver, foco y teclas al perder la ventana; solo actúa si DXMT registra una vista; trae opciones de Soju `WINE_NO_DOCK_ICON`, `WINE_DOCK_REOPEN_CMD`, `WINE_CUSTOM_FRAME`; `DXMT_CANVAS_DRAWABLES`/`OVERLAY`/`LOG` | GENÉRICO (opt-in) | Conservar. Su código marcado "Soju" viene de `winemac-no-dock-icon.patch`, que Soju ofrece con LGPL-2.1+ (ver "Licencia del código de Soju") |
 | 6 | `wine-mouselook.patch` (1223) | Mouse crudo con Game Controller framework para los ejecutables en `WINEMAC_MOUSELOOK` mientras ocultan y confinan el cursor; trackpads sin cambios | GENÉRICO (lista) | Conservar; lista desde el perfil |
 | 7 | `wine-portable-directory-boolean.patch` (16) | Corrige el ABI de un `BOOLEAN` en `NtQueryDirectoryObject` (bytes altos no definidos) | GENÉRICO (siempre activo) | Conservar |
@@ -466,7 +477,7 @@ carpeta `licenses/`):
   nettle, GnuTLS, libinotify, SDL2 [Zlib], MoltenVK) y FreeType (`FTL.TXT`, `GPLv2.TXT`).
 - **Toolchain**: `LICENSE.TXT` de llvm-mingw y `COPYING` de MinGW i686/x86_64 (el runtime de
   MinGW queda dentro de los PE); `licenses/LLVM-15-LICENSE.txt` (Apache 2.0 con excepción LLVM).
-- **DirectX headers**: `COPYING.MinGW-w64.txt`; **NVAPI**: MIT (solo con MetalFX).
+- **DirectX headers**: `COPYING.MinGW-w64.txt`; **NVAPI**: MIT (solo con MetalFX; Riftway no lo compila).
 - **Soju**: copia su `LICENSE` como `licenses/Soju-GPL-3.0`.
 - **Apple**: `License.rtf`, `Read Me.rtf`, `Acknowledgements.rtf` en `licenses/apple/`.
 - Los avisos se copian también a `Contents/Resources/Licenses` de la app (`scripts/build_native_app.py`).

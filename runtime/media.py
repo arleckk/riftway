@@ -205,13 +205,13 @@ def gstreamer(tree, env, jobs):
 
 def winegstreamer(env, jobs):
     """Configures a second Wine tree with GStreamer and builds winegstreamer only.
-    Same patched source and flags as Recall's build; GStreamer changes no other module."""
+    Same patched source and flags as the Wine build (runtime/recipe/wine.py); GStreamer
+    changes no other module. A tree configured with other flags is built again from scratch."""
     wine = PHASE2 / 'sources/wine/sources/wine'
     tree = PHASE2 / 'media-wine-build'
     staged = STAGE / PREFIX.lstrip('/')
     log = PHASE2 / 'build-logs/media-wine.log'
-    tree.mkdir(exist_ok=True)
-    wine_flags = '-O2 -g0 -ffile-prefix-map=' + str(PHASE2) + '=/build/overwatch-2-mac'
+    wine_flags = '-O2 -g0 -ffile-prefix-map=' + str(PHASE2) + '=/build/riftway'
     include = staged / 'include'
     gst_cflags = ' '.join(['-I' + str(include / 'gstreamer-1.0'), '-I' + str(include / 'glib-2.0'),
                            '-I' + str(staged / 'lib/glib-2.0/include')])
@@ -222,7 +222,10 @@ def winegstreamer(env, jobs):
             'HOME': os.environ['HOME'], 'DEVELOPER_DIR': env['DEVELOPER_DIR'], 'SDKROOT': SDK,
             'MACOSX_DEPLOYMENT_TARGET': '26.0'}
     configured = tree / '.riftway-media-configuration'
-    signature = gst_cflags + '\n' + gst_libs + '\n'
+    signature = gst_cflags + '\n' + gst_libs + '\n' + wine_flags + '\n'
+    if tree.exists() and not (configured.exists() and configured.read_text() == signature):
+        shutil.rmtree(tree)
+    tree.mkdir(exist_ok=True)
     if not (tree / 'Makefile').exists() or not configured.exists() or configured.read_text() != signature:
         run(['/usr/bin/arch', '-x86_64', wine / 'configure', '--prefix=/usr/local',
              '--enable-archs=i386,x86_64', '--without-x', '--disable-tests',

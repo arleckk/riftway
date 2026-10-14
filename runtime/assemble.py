@@ -3,6 +3,8 @@
 
 Derived from Recall's scripts/assemble_portable_runtime.py (Apache 2.0,
 github.com/AsherJN/recall). Differences:
+  - Wine and DXMT come from Riftway's recipe (runtime/recipe/): no Whisky
+    libraries, no MetalFX (no NVAPI, NGX or D3D12 stand-ins), no GPL-3.0 code;
   - no Apple component (libd3dshared.dylib): D3DMetal is never redistributed;
   - config/dxmt.conf is generic: each bottle writes its own from the game profile;
   - ad hoc signing (identity "-") is supported, for builds without a Developer ID;
@@ -211,7 +213,7 @@ def assemble(version, identity):
     # Native dependency closure: what the runtime links, plus four libraries
     # Wine dlopens (GnuTLS, FreeType, MoltenVK, SDL2 for controllers).
     available = {p.name: p for p in (PHASE2 / 'clean-deps/lib').glob('*.dylib')}
-    available['libfreetype.6.dylib'] = PHASE2 / 'deps/lib/libfreetype.6.dylib'
+    available['libfreetype.6.dylib'] = PHASE2 / 'freetype-install/lib/libfreetype.6.dylib'
     available.update({p.name: p for p in (MEDIA / 'lib').glob('*.dylib')})
     needed = {'libgnutls.30.dylib', 'libfreetype.6.dylib', 'libMoltenVK.dylib', 'libSDL2-2.0.0.dylib'}
     chosen = {}
@@ -310,7 +312,7 @@ def assemble(version, identity):
         'native_dependency_inputs': chosen, 'development_path_scan_passed': True,
         'wine_mono_corresponding_source_sha256': MONO_SOURCE_SHA,
         'wine_gecko': {'version': '2.47.4', 'files': GECKO, 'source': GECKO_SOURCE_URL},
-        'status': 'phase 1 spike: Recall recipe reproduced; not for distribution',
+        'status': 'phase 2: Riftway recipe derived from Recall; not for distribution',
     }
     (dest / 'runtime.json').write_text(json.dumps(manifest, indent=2) + '\n')
     archive = Path(str(dest) + '.tar.gz')
