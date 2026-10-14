@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "digimon-super-rumble",
   "name": "Digimon Super Rumble",
-  "revision": 2,
+  "revision": 3,
   "match": {
     "product": [
       "Digimon SuperRumble",
@@ -59,64 +59,82 @@
         "actionSet": {
           "base": {
             "bindings": {
-              "a": "key:F",
-              "b": "key:ESCAPE",
-              "dpadDown": "key:W",
+              "leftStickUp": "key:W",
+              "leftStickLeft": "key:A",
+              "leftStickDown": "key:S",
+              "leftStickRight": "key:D",
               "dpadLeft": "key:Q",
+              "dpadDown": "key:W",
               "dpadRight": "key:E",
               "dpadUp": "key:R",
-              "l1": "layer:L1",
-              "l2": "mouse:right",
-              "l3": "key:BACK_TICK",
-              "leftStickDown": "key:S",
-              "leftStickLeft": "key:A",
-              "leftStickRight": "key:D",
-              "leftStickUp": "key:W",
-              "r1": "layer:R1",
-              "r2": "mouse:left",
-              "select": "key:I",
-              "start": "key:M",
-              "touchpadLeft": "key:T",
-              "touchpadRight": "key:SPACE",
+              "a": "key:F",
+              "b": "key:ESCAPE",
               "x": "key:G",
-              "y": "key:V"
+              "y": "key:SPACE",
+              "l1": "layer:L1",
+              "r1": "layer:R1",
+              "l2": "mouse:right",
+              "r2": "mouse:left",
+              "l3": "key:BACK_TICK",
+              "r3": "key:LEFT_ALT",
+              "start": "key:B",
+              "select": "layer:Menús",
+              "touchpadLeft": "key:TAB",
+              "touchpadRight": "key:LEFT_CONTROL"
             }
           },
           "layers": {
             "L1": {
               "bindings": {
-                "a": "key:2",
-                "b": "key:3",
-                "dpadDown": "key:S",
+                "l1": "none",
+                "r1": "none",
+                "l2": "none",
+                "r2": "none",
+                "start": "none",
+                "select": "none",
                 "dpadLeft": "key:A",
+                "dpadDown": "key:S",
                 "dpadRight": "key:D",
                 "dpadUp": "key:F",
-                "l1": "none",
-                "l2": "none",
-                "r1": "none",
-                "r2": "none",
-                "select": "none",
-                "start": "none",
                 "x": "key:1",
+                "a": "key:2",
+                "b": "key:3",
                 "y": "key:4"
               }
             },
             "R1": {
               "bindings": {
-                "a": "key:2",
-                "b": "key:3",
-                "dpadDown": "key:X",
+                "l1": "none",
+                "r1": "none",
+                "l2": "none",
+                "r2": "none",
+                "start": "none",
+                "select": "none",
                 "dpadLeft": "key:Z",
+                "dpadDown": "key:X",
                 "dpadRight": "key:C",
                 "dpadUp": "key:V",
-                "l1": "none",
-                "l2": "layer:L1",
-                "r1": "none",
-                "r2": "layer:R1",
-                "select": "none",
+                "x": "key:F1",
+                "a": "key:F2",
+                "b": "key:F3",
+                "y": "key:5"
+              }
+            },
+            "Menús": {
+              "bindings": {
                 "start": "none",
-                "x": "key:1",
-                "y": "key:4"
+                "dpadUp": "key:U",
+                "dpadLeft": "key:Y",
+                "dpadRight": "key:O",
+                "dpadDown": "key:I",
+                "x": "key:T",
+                "a": "key:M",
+                "b": "key:K",
+                "y": "key:J",
+                "l1": "key:P",
+                "r1": "key:L",
+                "l2": "key:PERIOD",
+                "r2": "key:KEYPAD_PLUS"
               }
             }
           },
@@ -124,7 +142,7 @@
             "touchpad",
             "rightStick"
           ],
-          "source": "Perfil de Riftway (basado en Steam Input)"
+          "source": "Perfil de Riftway"
         },
         "mode": "keyboard"
       },
@@ -134,5 +152,5 @@
     },
     "schema": 1
   },
-  "notes": "Usa DirectX 11 (la casilla \"DirectX 11 실행\" del launcher): con D3D12 se queda en los logos. winegstreamer está apagado solo para el launcher, cuya vista web se cae al cerrar con él; el cliente conserva los videos. Jugar abre el sitio la primera vez; después usa el último enlace dsropen que el sitio mandó. Pendiente: sesiones largas. Control: el launcher en modo escritorio y el juego en teclado y mouse (DSR no soporta control): stick izquierdo WASD, cruceta habilidades del Digimon 1 (Q W E R), L1 + cruceta las del Digimon 2 y R1 + cruceta las del Digimon 3, ✕ interactuar, □ recoger, touchpad y stick derecho como mouse."
+  "notes": "Usa DirectX 11 (la casilla \"DirectX 11 실행\" del launcher): con D3D12 se queda en los logos. winegstreamer está apagado solo para el launcher, cuya vista web se cae al cerrar con él; el cliente conserva los videos. Jugar abre el sitio la primera vez; después usa el último enlace dsropen que el sitio mandó. Pendiente: sesiones largas. Control (DSR no soporta control; el launcher va en modo escritorio y el juego en teclado y mouse, con las teclas por defecto del juego): stick izquierdo WASD; stick derecho y touchpad, mouse; cruceta, habilidades del Digimon 1 (Q W E R); ✕ interactuar (F), ○ Esc, □ recoger (G), △ saltar / Slow Mode (Espacio); L2/R2 clic derecho/izquierdo; L3 Auto Run / vista de cámara (`); R3 LAlt (modo de movimiento / barras de HP); Options mapa (B); touchpad izquierdo Tab (chat / info del enemigo), derecho LCtrl (velocidad de batalla). L1 + cruceta, Digimon 2 (A S D F); L1 + □✕○△, 1-4 (objetivos y ranuras rápidas). R1 + cruceta, Digimon 3 (Z X C V); R1 + □✕○, Charge Data F1-F3; R1 + △, ranura 5. Share sostenido abre menús: cruceta Inventario/Colección/DigiPass/DigiTalk, □ Logros, ✕ Auto Skill Settings, ○ Evento, △ Costume Box, L1 Remote Exchange, R1 ocultar UI, L2 Codex, R2 DigiIsland."
 }
