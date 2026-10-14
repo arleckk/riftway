@@ -107,14 +107,15 @@ en una botella nueva del runtime propio, sin CrossOver y sin tocar el anti-cheat
   reactiva para el launcher (`riftway program-dll … winegstreamer b`): se ve el video, pero
   se sigue cayendo al cerrar (Wine Debugger en `mshtml`). La causa es `notif_readystate`
   leyendo `window->browser->doc` cuando el documento ya soltó el navegador; el parche
-  `runtime/patches/wine-mshtml-readystate-detached.patch` (`rw-0.1.8-spike`) lo evita. Si
-  con él ya no se cae, el perfil deja de apagarlo.
+  `runtime/patches/wine-mshtml-readystate-detached.patch` (`rw-0.1.8-spike`) lo evita:
+  confirmado el 2026-10-14 con `rw-0.1.9-spike` (video del launcher y sin caída al cerrar),
+  y el perfil (revisión 8) ya no apaga `winegstreamer`.
 - El video de fondo de la selección de servidor (`Content/Movies/login.mp4`, H.264 sin
   audio) no aparece en el cliente: UE5 decodifica hacia texturas D3D11 y DXMT no tiene
   NV12 (arreglado en `rw-0.1.8-spike`), y además el decodificador H.264 de CrossOver
   esconde NV12 en macOS, que es el formato que busca el reproductor de UE5 (en
   `rw-0.1.8-spike` siguió sin verse). Arreglado en `rw-0.1.9-spike` (RUNTIME-BUILD.md fase 2,
-  punto 9); falta verlo en el juego.
+  punto 9); confirmado en el juego el 2026-10-14.
 - Texto coreano en cuadros en el launcher: es WinForms de Wine Mono, que dibuja con GDI+, y
   el GDI+ de Wine no usa `FontLink\SystemLink`. Pide Tahoma y Microsoft Sans Serif (las del
   Mac, sin hangul); el perfil (revisión 6) las sustituye por Apple SD Gothic Neo en

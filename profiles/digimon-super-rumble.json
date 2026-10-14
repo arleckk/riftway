@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "digimon-super-rumble",
   "name": "Digimon Super Rumble",
-  "revision": 7,
+  "revision": 8,
   "match": {
     "product": [
       "Digimon SuperRumble",
@@ -29,10 +29,10 @@
     "kernel": false
   },
   "tested": {
-    "date": "2026-10-13",
+    "date": "2026-10-14",
     "macos": "26.6",
     "hardware": "Mac15,10 (Apple M3 Max)",
-    "runtime": "rw-0.1.2-spike",
+    "runtime": "rw-0.1.9-spike",
     "online": true
   },
   "game": {
@@ -45,11 +45,6 @@
     "programs": [
       "SuperRumble Launcher.exe"
     ]
-  },
-  "program_dll_overrides": {
-    "SuperRumble Launcher.exe": {
-      "winegstreamer": ""
-    }
   },
   "registry": {
     "HKCU/Software/Movegames/Digimon SuperRumble": {
@@ -143,5 +138,5 @@
     },
     "schema": 1
   },
-  "notes": "Usa DirectX 11 (la casilla \"DirectX 11 실행\" del launcher): con D3D12 se queda en los logos. winegstreamer está apagado solo para el launcher, cuya vista web se cae al cerrar con él; el cliente conserva los videos. El launcher (WinForms de Wine Mono) dibuja con GDI+, que en Wine no usa los vínculos de fuentes: Tahoma y Microsoft Sans Serif se sustituyen por Apple SD Gothic Neo para que el coreano no salga en cuadros. Jugar abre el sitio la primera vez; después usa el último enlace dsropen que el sitio mandó. El cliente arranca desde su propio bundle para que macOS active Game Mode en pantalla completa. Pendiente: sesiones largas. Control (tu mapeo de Steam Input; DSR no soporta control, así que el launcher va en modo escritorio y el juego en teclado y mouse): stick izquierdo WASD; stick derecho y touchpad, mouse (cámara); cruceta, habilidades del Digimon 1 (Q W E R); ✕ F (interactuar), ○ Esc, □ G (recoger), △ V; L2/R2 clic derecho/izquierdo; L3 `; Share I; Options M; touchpad izquierdo T, derecho Espacio. L1 + cruceta, Digimon 2 (A S D F); R1 + cruceta, Digimon 3 (Z X C V); L1 o R1 + □✕○△, 1-4."
+  "notes": "Usa DirectX 11 (la casilla \"DirectX 11 실행\" del launcher): con D3D12 se queda en los logos. Los videos del launcher y del juego (el fondo de la selección de servidor) necesitan rw-0.1.9-spike o posterior; con un runtime anterior a rw-0.1.8-spike el launcher se cae al cerrarse. El launcher (WinForms de Wine Mono) dibuja con GDI+, que en Wine no usa los vínculos de fuentes: Tahoma y Microsoft Sans Serif se sustituyen por Apple SD Gothic Neo para que el coreano no salga en cuadros. Jugar abre el sitio la primera vez; después usa el último enlace dsropen que el sitio mandó. El cliente arranca desde su propio bundle para que macOS active Game Mode en pantalla completa. Pendiente: sesiones largas. Control (tu mapeo de Steam Input; DSR no soporta control, así que el launcher va en modo escritorio y el juego en teclado y mouse): stick izquierdo WASD; stick derecho y touchpad, mouse (cámara); cruceta, habilidades del Digimon 1 (Q W E R); ✕ F (interactuar), ○ Esc, □ G (recoger), △ V; L2/R2 clic derecho/izquierdo; L3 `; Share I; Options M; touchpad izquierdo T, derecho Espacio. L1 + cruceta, Digimon 2 (A S D F); R1 + cruceta, Digimon 3 (Z X C V); L1 o R1 + □✕○△, 1-4."
 }
