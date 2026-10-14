@@ -259,6 +259,28 @@ let installedSystemReg = #"""
         #expect(try store.read(account: "game:g") == nil)
     }
 
+    @Test func rediscoveryKeepsChangesMadeDuringTheSession() throws {
+        let fake = try FakePrefix()
+        defer { fake.remove() }
+        let home = RiftwayHome(root: fake.root.appendingPathComponent("home"), bridges: fake.root.appendingPathComponent("bridges"))
+        let library = Library(home: home)
+        let root = home.bottles.appendingPathComponent("g")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: fake.prefix, to: root.appendingPathComponent("prefix"))
+        try PrefixSnapshot.capture(prefix: root.appendingPathComponent("prefix")).write(to: root.appendingPathComponent(Library.baselineFile))
+        try library.save(BottleRecord(name: "G", runtimeVersion: "rw-1", created: Date(), options: GameOptions()), in: root)
+        try library.save(Game(id: "g", name: "G", schemes: ["gameopen"]), in: root)
+        let stale = try #require(library.entry(at: root))
+
+        // While the game runs, the player changes what Play starts.
+        var changed = stale.game
+        changed.customLaunch = .command(path: #"C:\G\G.exe"#, arguments: "-flag")
+        try library.save(changed, in: root)
+
+        _ = try library.rediscover(stale)
+        #expect(library.entry(at: root)?.game.customLaunch == .command(path: #"C:\G\G.exe"#, arguments: "-flag"))
+    }
+
     @Test func linksMustUseTheGamesSchemeAndCommandsRun() throws {
         let fake = try FakePrefix()
         defer { fake.remove() }

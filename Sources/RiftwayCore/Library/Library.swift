@@ -181,7 +181,9 @@ public struct Library: Sendable {
         let baseline = try PrefixSnapshot.read(from: entry.root.appendingPathComponent(Self.baselineFile))
         let result = InstallDiscovery.discover(prefix: entry.root.appendingPathComponent("prefix"), baseline: baseline,
                                                product: entry.game.installer?.product ?? entry.game.name)
-        var game = entry.game
+        // The game as saved now, not as `entry` read it when the session
+        // started: what Play starts may have changed meanwhile.
+        var game = self.entry(at: entry.root)?.game ?? entry.game
         let before = Set(game.schemes)
         game.merge(result)
         try save(game, in: entry.root)
