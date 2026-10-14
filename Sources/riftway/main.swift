@@ -51,6 +51,9 @@ Library (~/Library/Application Support/Riftway, or $RIFTWAY_HOME):
       Move an existing Riftway bottle into the library (same disk: a rename),
       re-point R:, record a baseline from a fresh bottle on the same runtime,
       discover its game and build its bridge.
+  riftway play-setup <game> (--link [--scheme S] | --command PATH [--args "ARGS"] | --reset)
+      What Play starts. --link reads a launch link (dsropen:…) from standard input,
+      never from the command line, and keeps it in the Keychain.
   riftway diagnostics <game> on|off
       Diagnostic mode: Wine's errors and DLL loads in the bottle's logs/session-*.log.
   riftway program-dll <game> <program.exe> <dll> <mode|off|remove>
@@ -64,7 +67,7 @@ struct Options {
 
     static let valued: Set<String> = ["--bottle", "--prefix", "--wine", "--name", "--scheme", "--arg", "--icon", "--output",
                                       "--runtime", "--at", "--timeout", "--debug", "--app-dpi", "--mouselook", "--env",
-                                      "--baseline-from", "--installer-arg", "--runtime-version", "--program-dll"]
+                                      "--baseline-from", "--installer-arg", "--runtime-version", "--program-dll", "--command", "--args"]
     /// Everything after `--`, passed through untouched.
     var passthrough: [String] = []
 
@@ -399,6 +402,54 @@ func adopt(_ options: Options) async throws {
     if options.flags.contains("--default") { try await setDefault(app, schemes: game.schemes) }
 }
 
+/// One line from standard input, without echo when it is a terminal.
+func readSecretLine(prompt: String) -> String? {
+    let terminal = isatty(STDIN_FILENO) == 1
+    var saved = termios()
+    if terminal {
+        FileHandle.standardError.write(Data(prompt.utf8))
+        tcgetattr(STDIN_FILENO, &saved)
+        var silent = saved
+        silent.c_lflag &= ~tcflag_t(ECHO)
+        tcsetattr(STDIN_FILENO, TCSANOW, &silent)
+    }
+    defer {
+        if terminal {
+            tcsetattr(STDIN_FILENO, TCSANOW, &saved)
+            FileHandle.standardError.write(Data("\n".utf8))
+        }
+    }
+    return readLine(strippingNewline: true)?.trimmingCharacters(in: .whitespaces)
+}
+
+func playSetup(_ options: Options) throws {
+    let library = Library()
+    let entry = try findGame(library, options.positional.first)
+    let game: Game
+    if options.flags.contains("--reset") {
+        game = try GameLauncher.setCustomLaunch(nil, for: entry, library: library)
+        print("Play starts: \(target(game.primary))")
+    } else if options.flags.contains("--link") {
+        let scheme = options.one("--scheme")?.lowercased() ?? entry.game.schemes.first
+        guard let scheme, entry.game.schemes.contains(scheme) else {
+            throw CLIError("The game handles no such scheme (its schemes: \(entry.game.schemes.joined(separator: ", ")))")
+        }
+        guard let link = readSecretLine(prompt: "Paste the \(scheme): link and press Return: "), !link.isEmpty else {
+            throw CLIError("No link given")
+        }
+        game = try GameLauncher.setCustomLaunch(.link(scheme: scheme), link: link, for: entry, library: library)
+        print("Play starts the saved \(scheme): link \(IncomingURL.redacted(link)) (kept in the Keychain)")
+    } else if let path = options.one("--command") {
+        game = try GameLauncher.setCustomLaunch(.command(path: path, arguments: options.one("--args")), for: entry, library: library)
+        print("Play starts: \(path) \(options.one("--args") ?? "")")
+    } else {
+        throw CLIError("Pass --link, --command PATH or --reset")
+    }
+    if game.bridge != nil, let updated = library.entry(at: entry.root) {
+        _ = try GameLauncher.makeBridge(for: updated, shimBinary: try shimBinary(), home: library.home)
+    }
+}
+
 func bottleSetup(_ options: Options) throws -> BottleSetup {
     guard let runtime = options.one("--runtime"), let at = options.one("--at") else {
         throw CLIError("Pass --runtime DIR and --at DIR")
@@ -511,6 +562,8 @@ do {
         for r in runtimes { print("\(r.version)  \(r.runtime.root)") }
     case "install":
         try await install(options)
+    case "play-setup":
+        try playSetup(options)
     case "adopt":
         try await adopt(options)
     case "library":
@@ -518,7 +571,11 @@ do {
         if entries.isEmpty { print("The library is empty (\(RiftwayHome.standard.bottles.path))") }
         for e in entries {
             print("\(e.game.name)  [\(e.id), runtime \(e.record.runtimeVersion)\(e.runtime == nil ? " MISSING" : "")\(e.record.options.diagnostics ? ", diagnostics" : "")]")
-            print("  play:    \(target(e.game.primary))")
+            switch e.game.customLaunch {
+            case .link(let scheme)?: print("  play:    saved \(scheme): link (Keychain)")
+            case .command(let path, let arguments)?: print("  play:    \(path) \(arguments ?? "") (custom)")
+            case nil: print("  play:    \(target(e.game.primary))")
+            }
             if !e.game.schemes.isEmpty { print("  schemes: \(e.game.schemes.joined(separator: ", "))") }
             if let bridge = e.game.bridge { print("  bridge:  \(bridge)") }
             if !e.game.drivers.isEmpty { print("  drivers: \(e.game.drivers.map(\.name).joined(separator: ", "))") }

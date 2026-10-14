@@ -106,6 +106,7 @@ private struct GameGrid: View {
     @Bindable var library: LibraryModel
     let add: () -> Void
     @State private var trashCandidate: LibraryEntry?
+    @State private var playSettings: LibraryEntry?
 
     var body: some View {
         ScrollView {
@@ -118,6 +119,9 @@ private struct GameGrid: View {
                 AddTile(action: add)
             }
             .padding(20)
+        }
+        .sheet(item: $playSettings) { entry in
+            PlaySettingsView(entry: entry, library: library)
         }
         .confirmationDialog("¿Mover \(trashCandidate?.game.name ?? "") a la Papelera?",
                             isPresented: Binding(get: { trashCandidate != nil }, set: { if !$0 { trashCandidate = nil } }),
@@ -140,6 +144,7 @@ private struct GameGrid: View {
             Button("Terminar todos sus procesos") { library.stop(entry) }
         }
         Divider()
+        Button("Configurar Jugar…") { playSettings = entry }
         Toggle("Modo diagnóstico", isOn: Binding(get: { entry.record.options.diagnostics },
                                                  set: { library.setDiagnostics(entry, $0) }))
         Button("Abrir logs") { library.showLogs(entry) }
@@ -176,7 +181,8 @@ private struct GameTile: View {
             } else {
                 Button(action: play) { Label("Jugar", systemImage: "play.fill") }
                     .buttonStyle(.borderedProminent)
-                    .disabled(entry.game.primary == nil || (entry.runtime == nil && entry.game.primary?.windowsPath != nil))
+                    .disabled((entry.game.primary == nil && entry.game.customLaunch == nil)
+                              || (entry.runtime == nil && (entry.game.customLaunch != nil || entry.game.primary?.windowsPath != nil)))
             }
         }
         .padding(14)
@@ -187,6 +193,11 @@ private struct GameTile: View {
     private var subtitle: String {
         if isRunning { return "Abierto" }
         if entry.runtime == nil { return "Falta el runtime \(entry.record.runtimeVersion)" }
+        switch entry.game.customLaunch {
+        case .link?: return "Abre con tu enlace guardado"
+        case .command?: return "Abre con tu comando"
+        case nil: break
+        }
         if entry.game.primary == nil { return "Sin programa para abrir" }
         if case .web = entry.game.primary?.target { return "Se abre desde su sitio" }
         return entry.game.publisher ?? ""
@@ -540,6 +551,122 @@ struct SettingsView: View {
             } else {
                 Text(FileAssociation.handlerName(for: type) ?? "Ninguna app").foregroundStyle(.secondary)
             }
+        }
+    }
+}
+
+/// What Play starts: what the installer left, a launch link the player pastes
+/// (kept in the Keychain), or a program of the bottle with its own arguments.
+struct PlaySettingsView: View {
+    enum Mode: Hashable { case discovered, link, command }
+
+    let entry: LibraryEntry
+    let library: LibraryModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var mode: Mode
+    @State private var scheme: String
+    @State private var link = ""
+    @State private var path: String
+    @State private var arguments: String
+    @State private var problem: String?
+
+    init(entry: LibraryEntry, library: LibraryModel) {
+        self.entry = entry
+        self.library = library
+        let game = entry.game
+        switch game.customLaunch {
+        case .link(let scheme)?:
+            _mode = State(initialValue: .link)
+            _scheme = State(initialValue: scheme)
+        case .command?:
+            _mode = State(initialValue: .command)
+            _scheme = State(initialValue: game.schemes.first ?? "")
+        case nil:
+            _mode = State(initialValue: .discovered)
+            _scheme = State(initialValue: game.schemes.first ?? "")
+        }
+        if case .command(let path, let arguments)? = game.customLaunch {
+            _path = State(initialValue: path)
+            _arguments = State(initialValue: arguments ?? "")
+        } else {
+            let fallback = game.primary?.windowsPath ?? game.programs.compactMap(\.windowsPath).first ?? ""
+            _path = State(initialValue: fallback)
+            _arguments = State(initialValue: "")
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Qué abre Jugar en \(entry.game.name)").font(.title3.weight(.semibold))
+            Picker("", selection: $mode) {
+                Text(discoveredLabel).tag(Mode.discovered)
+                if !entry.game.schemes.isEmpty { Text("Un enlace del juego, como dsropen:…").tag(Mode.link) }
+                Text("Un programa de la botella con argumentos").tag(Mode.command)
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+
+            switch mode {
+            case .discovered:
+                EmptyView()
+            case .link:
+                if entry.game.schemes.count > 1 {
+                    Picker("Esquema", selection: $scheme) {
+                        ForEach(entry.game.schemes, id: \.self) { Text("\($0):").tag($0) }
+                    }
+                }
+                SecureField(entry.game.customLaunch == .link(scheme: scheme) ? "Pega un enlace nuevo para reemplazar el guardado"
+                                                                             : "\(scheme):…", text: $link)
+                Text("El enlace incluye tu sesión, así que se guarda en el Llavero de macOS y no en archivos ni logs. Si caduca, pega uno nuevo.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            case .command:
+                TextField("Programa (ruta de Windows)", text: $path)
+                TextField("Argumentos", text: $arguments)
+                Text("Por ejemplo: C:\\Program Files\\Juego\\Juego.exe con -dx11.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if let problem { Text(problem).font(.callout).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
+            HStack {
+                Spacer()
+                Button("Cancelar") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Guardar", action: save).keyboardShortcut(.defaultAction).disabled(!canSave)
+            }
+        }
+        .padding(22)
+        .frame(width: 520)
+    }
+
+    private var discoveredLabel: String {
+        switch entry.game.primary?.target {
+        case .web(let url)?: "Lo que dejó el instalador: el sitio (\(URL(string: url)?.host ?? url))"
+        case .executable(let path, _)?: "Lo que dejó el instalador: \(path.split(separator: "\\").last ?? "")"
+        case nil: "Lo que dejó el instalador"
+        }
+    }
+
+    private var canSave: Bool {
+        switch mode {
+        case .discovered: true
+        // An already saved link can stay as is.
+        case .link: !link.isEmpty || entry.game.customLaunch == .link(scheme: scheme)
+        case .command: path.lowercased().hasSuffix(".exe")
+        }
+    }
+
+    private func save() {
+        do {
+            switch mode {
+            case .discovered:
+                try library.setCustomLaunch(entry, nil, link: nil)
+            case .link:
+                if link.isEmpty { break }  // keep the saved link
+                try library.setCustomLaunch(entry, .link(scheme: scheme), link: link.trimmingCharacters(in: .whitespacesAndNewlines))
+            case .command:
+                try library.setCustomLaunch(entry, .command(path: path, arguments: arguments.isEmpty ? nil : arguments), link: nil)
+            }
+            dismiss()
+        } catch {
+            problem = "\(error)"
         }
     }
 }

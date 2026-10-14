@@ -224,3 +224,48 @@ let installedSystemReg = #"""
         #expect(env["DXMT_LOG_PATH"] == nil)
     }
 }
+
+@Suite struct CustomLaunchTests {
+    @Test func keychainRoundTrip() throws {
+        let account = "test:" + UUID().uuidString
+        defer { try? SecretStore.delete(account: account) }
+        #expect(try SecretStore.read(account: account) == nil)
+        try SecretStore.save("dsropen:a;b;c", account: account)
+        try SecretStore.save("dsropen:d;e;f", account: account)  // replaces
+        #expect(try SecretStore.read(account: account) == "dsropen:d;e;f")
+        try SecretStore.delete(account: account)
+        #expect(try SecretStore.read(account: account) == nil)
+    }
+
+    @Test func linksMustUseTheGamesSchemeAndCommandsRun() throws {
+        let fake = try FakePrefix()
+        defer { fake.remove() }
+        let home = RiftwayHome(root: fake.root.appendingPathComponent("home"), bridges: fake.root.appendingPathComponent("bridges"))
+        let library = Library(home: home)
+        let root = home.bottles.appendingPathComponent("g")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: fake.prefix, to: root.appendingPathComponent("prefix"))
+        let wine = home.runtimes.appendingPathComponent("rw-1/bin")
+        try FileManager.default.createDirectory(at: wine, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: wine.appendingPathComponent("wine").path, contents: Data(), attributes: [.posixPermissions: 0o755])
+        try library.save(BottleRecord(name: "G", runtimeVersion: "rw-1", created: Date(), options: GameOptions()), in: root)
+        try library.save(Game(id: "g", name: "G", schemes: ["gameopen"]), in: root)
+        let file = root.appendingPathComponent("prefix/drive_c/Games/G/G.exe")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: file.path, contents: Data())
+
+        let entry = try #require(library.entry(at: root))
+        #expect(throws: BridgeError.self) {
+            _ = try GameLauncher.setCustomLaunch(.link(scheme: "gameopen"), link: "otherscheme:token", for: entry, library: library)
+        }
+        #expect(library.entry(at: root)?.game.customLaunch == nil)
+
+        let game = try GameLauncher.setCustomLaunch(.command(path: #"C:\Games\G\G.exe"#, arguments: "-dx11 \"two words\""),
+                                                    for: entry, library: library)
+        #expect(game.customLaunch == .command(path: #"C:\Games\G\G.exe"#, arguments: "-dx11 \"two words\""))
+        let updated = try #require(library.entry(at: root))
+        guard case .wine(let plan, _) = try GameLauncher.action(for: updated) else { Issue.record("expected wine"); return }
+        #expect(plan.arguments.suffix(2) == ["-dx11", "two words"])
+        #expect(plan.arguments.first?.hasSuffix("drive_c/Games/G/G.exe") == true)
+    }
+}

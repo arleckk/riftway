@@ -21,6 +21,21 @@ public struct Game: Codable, Sendable, Equatable, Identifiable {
     public var lastPlayed: Date?
     /// The bridge app, when one was made.
     public var bridge: String?
+    /// What Play starts instead of `primary`, set by the player.
+    public var customLaunch: CustomLaunch?
+
+    /// A Play button the player configured.
+    public enum CustomLaunch: Codable, Sendable, Equatable {
+        /// A link to one of the game's schemes (`dsropen:token;email;hash`),
+        /// handed to the bottle as the website would. The link itself is in the
+        /// Keychain (`SecretStore`, account `keychainAccount`), never in files.
+        case link(scheme: String)
+        /// A program in the bottle with its own arguments.
+        case command(path: String, arguments: String?)
+    }
+
+    /// The Keychain account that holds this game's launch link.
+    public var keychainAccount: String { "game:" + id }
 
     public struct InstallerInfo: Codable, Sendable, Equatable {
         public var file: String

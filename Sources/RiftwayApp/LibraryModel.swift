@@ -222,6 +222,15 @@ final class LibraryModel {
         NSWorkspace.shared.open(logs)
     }
 
+    /// Sets what Play starts; `link` (with its token) goes to the Keychain.
+    func setCustomLaunch(_ entry: LibraryEntry, _ custom: Game.CustomLaunch?, link: String?) throws {
+        let game = try GameLauncher.setCustomLaunch(custom, link: link, for: entry, library: library)
+        if game.bridge != nil, let updated = library.entry(at: entry.root) {
+            _ = try? GameLauncher.makeBridge(for: updated, shimBinary: shimBinary, home: library.home)
+        }
+        reload()
+    }
+
     func rebuildBridge(_ entry: LibraryEntry) {
         do {
             let app = try GameLauncher.makeBridge(for: entry, shimBinary: shimBinary, home: library.home)

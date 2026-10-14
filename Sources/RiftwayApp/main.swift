@@ -175,6 +175,14 @@ let arguments = CommandLine.arguments
 if let index = arguments.firstIndex(of: "--render-library"), arguments.count > index + 1 {
     exit(MainActor.assumeIsolated { renderLibrary(to: arguments[index + 1]) })
 }
+if let index = arguments.firstIndex(of: "--render-play-settings"), arguments.count > index + 2 {
+    exit(MainActor.assumeIsolated {
+        let library = LibraryModel()
+        library.reload()
+        guard let entry = library.entries.first(where: { $0.id == arguments[index + 1] }) else { return 1 }
+        return snapshot(AnyView(PlaySettingsView(entry: entry, library: library)), to: arguments[index + 2])
+    })
+}
 if let index = arguments.firstIndex(of: "--render-install"), arguments.count > index + 2 {
     exit(MainActor.assumeIsolated { renderLibrary(to: arguments[index + 2], installedBottle: arguments[index + 1]) })
 }
