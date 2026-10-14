@@ -102,7 +102,14 @@ en una botella nueva del runtime propio, sin CrossOver y sin tocar el anti-cheat
   después de lanzar el cliente. El perfil de DSR apaga `winegstreamer` solo para
   `SuperRumble Launcher.exe` (`HKCU\Software\Wine\AppDefaults\…\DllOverrides`,
   `winegstreamer=""`); el cliente conserva los decodificadores. Los perfiles necesitan
-  overrides de DLL por ejecutable.
+  overrides de DLL por ejecutable. Por eso el launcher no muestra su video (MP4 H.264 + AAC
+  por Media Foundation). En prueba desde 2026-10-14 con `rw-0.1.5-spike`: el jugador lo
+  reactiva para el launcher (`riftway program-dll … winegstreamer b`); si ya no se cae al
+  cerrar, el perfil deja de apagarlo.
+- Texto coreano en cuadros en el launcher: es WinForms de Wine Mono, que dibuja con GDI+, y
+  el GDI+ de Wine no usa `FontLink\SystemLink`. Pide Tahoma y Microsoft Sans Serif (las del
+  Mac, sin hangul); el perfil (revisión 6) las sustituye por Apple SD Gothic Neo en
+  `FontSubstitutes` (confirmado con `+font`: `Chosen: "Apple SD Gothic Neo Regular"`).
   Kerberos ausente.
 - DXMT: feature level 11_1, sin errores en toda la sesión (un solo aviso,
   `MakeWindowAssociation`). La primera corrida compiló 255 librerías Metal en la caché.
