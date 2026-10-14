@@ -152,4 +152,34 @@ let steamConfig = #"""
         #expect(mine.controls(for: "SuperRumble Launcher.exe").mode == .desktop)
         #expect(mine.otherPrograms == .off)
     }
+
+    @Test func holdLayersLikeAPlayerPressesThem() {
+        let silent: [ControllerButton: ControllerOutput] = [.l1: .none, .r1: .none]
+        var set = ActionSet(base: InputLayer(bindings: [.l1: .holdLayer("L1"), .r1: .holdLayer("R1"), .dpadLeft: .key("Q")]))
+        set.layers["L1"] = InputLayer(bindings: silent.merging([.dpadLeft: .key("A")]) { $1 })
+        set.layers["R1"] = InputLayer(bindings: silent.merging([.dpadLeft: .key("Z")]) { $1 })
+        func down(_ key: String) -> ButtonMapper.Event { .init(output: .key(key), down: true) }
+        func up(_ key: String) -> ButtonMapper.Event { .init(output: .key(key), down: false) }
+
+        // The d-pad and L1 in the same poll: the layer's key.
+        var mapper = ButtonMapper(set: set)
+        #expect(mapper.update([.dpadLeft, .l1]) == [down("A")])
+        #expect(mapper.update([.l1]) == [up("A")])
+        #expect(mapper.update([]) == [])
+        #expect(mapper.layers.isEmpty)
+
+        // R1 pressed before letting go of L1 (L1's layer silences it): R1's
+        // layer once L1 is up.
+        #expect(mapper.update([.l1]) == [])
+        #expect(mapper.update([.l1, .r1]) == [])
+        #expect(mapper.layers == ["L1"])
+        #expect(mapper.update([.r1]) == [])
+        #expect(mapper.layers == ["R1"])
+        #expect(mapper.update([.r1, .dpadLeft]) == [down("Z")])
+        // A key keeps going up as the one that went down.
+        #expect(mapper.update([.dpadLeft]) == [])
+        #expect(mapper.update([]) == [up("Z")])
+        #expect(mapper.update([.dpadLeft]) == [down("Q")])
+        #expect(mapper.releaseAll() == [up("Q")])
+    }
 }

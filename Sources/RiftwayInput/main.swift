@@ -23,13 +23,9 @@ final class InputDelegate: NSObject, NSApplicationDelegate {
 
     /// The program in front, when it is one of this bottle's.
     var program: String?
-    var actionSet: ActionSet?
+    var mapper: ButtonMapper?
     var pidCache: [pid_t: String?] = [:]
 
-    var pressed: Set<ControllerButton> = []
-    /// What each held button produced when pressed, released with it.
-    var emitted: [ControllerButton: ControllerOutput] = [:]
-    var layers: [String] = []
     var keyFlags: CGEventFlags = []
     var mouseDown: Set<ControllerOutput.MouseButton> = []
     var lastTouch: CGPoint?
@@ -39,6 +35,8 @@ final class InputDelegate: NSObject, NSApplicationDelegate {
     var lastTick = Date()
     var started = Date()
     var quietChecks = 0
+    /// Keeps App Nap from slowing the polling timer of this background app.
+    var activity: NSObjectProtocol?
 
     init(root: URL) {
         self.root = root
@@ -48,6 +46,8 @@ final class InputDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         GCController.shouldMonitorBackgroundEvents = true
+        activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical],
+                                                         reason: "Reading the controller")
         trusted = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
         log.write("input: \(root.lastPathComponent): started" + (trusted ? "" : "; waiting for the Accessibility permission"))
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(frontmostChanged), name: NSWorkspace.didActivateApplicationNotification, object: nil)
@@ -70,7 +70,7 @@ final class InputDelegate: NSObject, NSApplicationDelegate {
         guard name != program else { return }
         releaseAll()
         program = name
-        actionSet = name.flatMap { layout.controls(for: $0).effectiveActionSet }
+        mapper = name.flatMap { layout.controls(for: $0).effectiveActionSet }.map(ButtonMapper.init)
         if let name { log.write("input: \(name) → \(layout.controls(for: name).mode.rawValue)") }
     }
 
@@ -126,7 +126,7 @@ final class InputDelegate: NSObject, NSApplicationDelegate {
         let now = Date()
         let dt = min(now.timeIntervalSince(lastTick), 0.05)
         lastTick = now
-        guard trusted, let set = actionSet, let pad = GCController.controllers().first(where: { $0.extendedGamepad != nil })?.extendedGamepad
+        guard trusted, let set = mapper?.set, let pad = GCController.controllers().first(where: { $0.extendedGamepad != nil })?.extendedGamepad
         else { return }
 
         var down: Set<ControllerButton> = []
@@ -152,11 +152,7 @@ final class InputDelegate: NSObject, NSApplicationDelegate {
             touchpadHalf = nil
         }
 
-        for button in pressed.subtracting(down) { release(button) }
-        for button in ControllerButton.allCases where down.contains(button) && !pressed.contains(button) {
-            press(button, output: set.output(for: button, layers: layers))
-        }
-        pressed = down
+        if let events = mapper?.update(down) { send(events) }
 
         var dx = 0.0, dy = 0.0
         for source in set.pointer {
@@ -178,6 +174,7 @@ final class InputDelegate: NSObject, NSApplicationDelegate {
     func stickAsDpad(_ stick: GCControllerDirectionPad, _ directions: [ControllerButton], into down: inout Set<ControllerButton>) {
         let x = stick.xAxis.value, y = stick.yAxis.value
         let values: [Float] = [y, -y, -x, x]
+        let pressed = mapper?.pressed ?? []
         for (direction, value) in zip(directions, values) where value > (pressed.contains(direction) ? 0.35 : 0.5) {
             down.insert(direction)
         }
@@ -196,30 +193,18 @@ final class InputDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: Sending events
 
-    func press(_ button: ControllerButton, output: ControllerOutput) {
-        emitted[button] = output
-        switch output {
-        case .key(let name): key(name, down: true)
-        case .mouse(let which): mouse(which, down: true)
-        case .holdLayer(let layer): layers.append(layer)
-        case .none: break
-        }
-    }
-
-    func release(_ button: ControllerButton) {
-        guard let output = emitted.removeValue(forKey: button) else { return }
-        switch output {
-        case .key(let name): key(name, down: false)
-        case .mouse(let which): mouse(which, down: false)
-        case .holdLayer(let layer): if let i = layers.lastIndex(of: layer) { layers.remove(at: i) }
-        case .none: break
+    func send(_ events: [ButtonMapper.Event]) {
+        for event in events {
+            switch event.output {
+            case .key(let name): key(name, down: event.down)
+            case .mouse(let which): mouse(which, down: event.down)
+            case .holdLayer, .none: break
+            }
         }
     }
 
     func releaseAll() {
-        for button in Array(emitted.keys) { release(button) }
-        pressed = []
-        layers = []
+        if let events = mapper?.releaseAll() { send(events) }
         lastTouch = nil
     }
 

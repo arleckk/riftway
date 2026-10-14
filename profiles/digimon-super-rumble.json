@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "digimon-super-rumble",
   "name": "Digimon Super Rumble",
-  "revision": 3,
+  "revision": 4,
   "match": {
     "product": [
       "Digimon SuperRumble",
@@ -86,8 +86,6 @@
           "layers": {
             "L1": {
               "bindings": {
-                "l1": "none",
-                "r1": "none",
                 "l2": "none",
                 "r2": "none",
                 "start": "none",
@@ -104,8 +102,6 @@
             },
             "R1": {
               "bindings": {
-                "l1": "none",
-                "r1": "none",
                 "l2": "none",
                 "r2": "none",
                 "start": "none",

@@ -169,7 +169,7 @@ como las demás opciones.
    su modo y mapeo, sin datos del jugador ni de la botella); **Importar** acepta ese
    archivo (se combina por programa) o un `.vdf` de Steam para el programa elegido. CLI:
    `riftway controller <juego> --export/--import archivo.json`.
-5. ✅ Sección `controller` de los perfiles. El de DSR (revisión 3) trae el launcher en
+5. ✅ Sección `controller` de los perfiles. El de DSR (revisión 4) trae el launcher en
    `desktop` y el cliente con un mapeo hecho sobre las teclas por defecto del juego,
    partiendo del que lo probó: cruceta y capas L1/R1 para las 12 habilidades, L1 + caras
    = objetivos y ranuras `1`–`4`, R1 + caras = Charge Data `F1`–`F3` y ranura `5`, △
@@ -178,7 +178,13 @@ como las demás opciones.
    distintas en el mapa y en batalla; el ayudante no sabe cuál, así que cada botón manda
    siempre la misma tecla. Se escribe en botellas sin `controller.json`; el editor
    ofrece "Usar el del perfil".
-6. Capa 1 (remapeo de SDL) y la opción de PlayStation crudo.
+6. ✅ Capas confiables (`ButtonMapper`, 2026-10-14): los botones que mantienen una capa se
+   procesan antes que los demás presionados en la misma lectura (L1 y la cruceta juntos
+   dan la tecla de la capa); un botón silenciado por una capa toma la suya cuando esa
+   capa se suelta (R1 antes de soltar L1); y el ayudante pide `latencyCritical` para que
+   App Nap no frene su lectura a 120 Hz en segundo plano. Las capas L1 y R1 de DSR ya no
+   se silencian entre sí: la más reciente gana.
+7. Capa 1 (remapeo de SDL) y la opción de PlayStation crudo.
 
 ## Implementación (capa 2)
 
