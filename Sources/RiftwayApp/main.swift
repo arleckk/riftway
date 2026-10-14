@@ -78,6 +78,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     try? bitmap.representation(using: .png, properties: [:])?.write(to: folder.appendingPathComponent("\(page)-\(name).png"))
                 }
             }
+            library.reload()
+            if let id = library.entries.first?.id {
+                for tab in GamePage.Tab.allCases {
+                    let page = NavigationStack {
+                        GamePage(id: id, library: library, close: {}, tab: tab).background(Theme.canvas)
+                    }
+                    let view = NSHostingView(rootView: page)
+                    view.frame = NSRect(x: 0, y: 0, width: 840, height: 680)
+                    let window = NSWindow(contentRect: view.frame, styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+                    window.contentView = view
+                    for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+                        window.appearance = NSAppearance(named: appearance)
+                        try? await Task.sleep(for: .seconds(1))
+                        view.layoutSubtreeIfNeeded()
+                        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+                        view.cacheDisplay(in: view.bounds, to: bitmap)
+                        try? bitmap.representation(using: .png, properties: [:])?
+                            .write(to: folder.appendingPathComponent("game-\(tab)-\(name).png"))
+                    }
+                }
+            }
             NSApp.terminate(nil)
         }
     }

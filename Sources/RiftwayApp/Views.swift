@@ -17,6 +17,8 @@ struct LibraryView: View {
     @State private var item: SidebarItem? = .library
     @State private var search = ""
     @State private var controllers = ControllerStatus()
+    /// The game page open over the current section, if any.
+    @State private var path: [String] = []
 
     init(model: AppModel, library: LibraryModel, updates: UpdateModel, item: SidebarItem = .library) {
         self.model = model
@@ -30,11 +32,19 @@ struct LibraryView: View {
             Sidebar(item: $item, library: library, controllers: controllers)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
         } detail: {
-            detail
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Theme.canvas)
+            NavigationStack(path: $path) {
+                detail
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Theme.canvas)
+                    .navigationDestination(for: String.self) { id in
+                        GamePage(id: id, library: library, close: { path.removeAll() })
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Theme.canvas)
+                    }
+            }
         }
         .tint(Theme.violet)
+        .onChange(of: item) { path.removeAll() }
         .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
             for provider in providers {
                 _ = provider.loadObject(ofClass: URL.self) { url, _ in
@@ -74,10 +84,12 @@ struct LibraryView: View {
         }
     }
 
+    private func open(_ entry: LibraryEntry) { path = [entry.id] }
+
     @ViewBuilder private var detail: some View {
         switch item ?? .library {
-        case .library: LibraryPage(model: model, library: library, search: $search, isTargeted: isTargeted)
-        case .playing: PlayingPage(library: library)
+        case .library: LibraryPage(model: model, library: library, search: $search, isTargeted: isTargeted, open: open)
+        case .playing: PlayingPage(library: library, open: open)
         case .runtimes: RuntimesPage(library: library)
         }
     }
@@ -142,6 +154,7 @@ private struct LibraryPage: View {
     @Bindable var library: LibraryModel
     @Binding var search: String
     let isTargeted: Bool
+    let open: (LibraryEntry) -> Void
 
     var body: some View {
         let shown = library.entries.filter { search.isEmpty || $0.game.name.localizedCaseInsensitiveContains(search) }
@@ -160,7 +173,7 @@ private struct LibraryPage: View {
                 } else if shown.isEmpty {
                     ContentUnavailableView.search(text: search).frame(maxWidth: .infinity, minHeight: 300)
                 } else {
-                    CoverGrid(entries: shown, library: library, add: search.isEmpty ? { model.chooseFiles() } : nil)
+                    CoverGrid(entries: shown, library: library, add: search.isEmpty ? { model.chooseFiles() } : nil, open: open)
                 }
             }
             .padding(24)
@@ -184,16 +197,17 @@ private struct LibraryPage: View {
 
 private struct PlayingPage: View {
     @Bindable var library: LibraryModel
+    let open: (LibraryEntry) -> Void
 
     var body: some View {
-        let open = library.entries.filter { library.running.contains($0.id) }
+        let games = library.entries.filter { library.running.contains($0.id) }
         Group {
-            if open.isEmpty {
+            if games.isEmpty {
                 ContentUnavailableView("Ningún juego abierto", systemImage: "play.circle",
                                        description: Text("Los juegos que abras desde Riftway o desde su sitio aparecen aquí."))
             } else {
                 ScrollView {
-                    CoverGrid(entries: open, library: library, add: nil).padding(24)
+                    CoverGrid(entries: games, library: library, add: nil, open: open).padding(24)
                 }
             }
         }

@@ -8,6 +8,8 @@ struct CoverGrid: View {
     @Bindable var library: LibraryModel
     /// The install tile at the end, when the grid shows the whole library.
     let add: (() -> Void)?
+    /// Opens the game's page.
+    let open: (LibraryEntry) -> Void
     @State private var trashCandidate: LibraryEntry?
     @State private var playSettings: LibraryEntry?
     @State private var controllerSettings: LibraryEntry?
@@ -18,7 +20,7 @@ struct CoverGrid: View {
             ForEach(entries) { entry in
                 CoverTile(entry: entry, icon: library.icons[entry.id], palette: library.palettes[entry.id] ?? .riftway,
                           runningSince: library.running.contains(entry.id) ? (library.runningSince[entry.id] ?? Date()) : nil,
-                          play: { library.play(entry) }, stop: { library.stop(entry) })
+                          play: { library.play(entry) }, stop: { library.stop(entry) }, open: { open(entry) })
                     .contextMenu { menu(entry) }
             }
             if let add { AddCover(action: add) }
@@ -40,6 +42,7 @@ struct CoverGrid: View {
 
     @ViewBuilder private func menu(_ entry: LibraryEntry) -> some View {
         Button("Jugar") { library.play(entry) }
+        Button("Ver página del juego") { open(entry) }
         let others = entry.game.programs.filter { $0.id != entry.game.primary?.id }
         if !others.isEmpty {
             Menu("Abrir otro programa") {
@@ -80,8 +83,8 @@ struct CoverGrid: View {
     }
 }
 
-/// One game: its cover, name and state. Play shows on hover; a double click
-/// plays too.
+/// One game: its cover, name and state. A click opens its page; Play shows
+/// on hover, and a double click plays too.
 private struct CoverTile: View {
     let entry: LibraryEntry
     let icon: NSImage?
@@ -90,6 +93,7 @@ private struct CoverTile: View {
     let runningSince: Date?
     let play: () -> Void
     let stop: () -> Void
+    let open: () -> Void
     @State private var hovering = false
 
     private var canPlay: Bool {
@@ -123,6 +127,7 @@ private struct CoverTile: View {
                 .scaleEffect(hovering ? 1.02 : 1)
                 .animation(.snappy(duration: 0.18), value: hovering)
                 .onTapGesture(count: 2) { if runningSince == nil && canPlay { play() } }
+                .onTapGesture { open() }
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.game.name).font(.callout.weight(.semibold)).lineLimit(2)
                 status
@@ -132,6 +137,7 @@ private struct CoverTile: View {
         .help(ReportText.compatibility(entry.compatibility, installed: true).text)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction { open() }
         .accessibilityAction(named: runningSince == nil ? "Jugar" : "Detener") { runningSince == nil ? play() : stop() }
     }
 
@@ -139,7 +145,7 @@ private struct CoverTile: View {
     @ViewBuilder private var status: some View {
         if let runningSince {
             TimelineView(.periodic(from: .now, by: 30)) { context in
-                Text("Jugando · \(SessionPill.elapsed(since: runningSince, now: context.date))").foregroundStyle(Theme.cyan)
+                Text("Jugando · \(SessionClock.elapsed(since: runningSince, now: context.date))").foregroundStyle(Theme.cyan)
             }
             .font(.caption)
         } else if entry.runtime == nil {
@@ -173,7 +179,7 @@ private struct SessionPill: View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
             HStack(spacing: 4) {
                 Circle().fill(Theme.cyan).frame(width: 6, height: 6)
-                Text(Self.elapsed(since: since, now: context.date)).monospacedDigit()
+                Text(SessionClock.elapsed(since: since, now: context.date)).monospacedDigit()
             }
             .font(.caption2.weight(.semibold))
             .foregroundStyle(.white)
@@ -182,11 +188,6 @@ private struct SessionPill: View {
         }
     }
 
-    /// "0:42": hours and minutes.
-    static func elapsed(since: Date, now: Date) -> String {
-        let minutes = max(0, Int(now.timeIntervalSince(since) / 60))
-        return "\(minutes / 60):" + String(format: "%02d", minutes % 60)
-    }
 }
 
 /// A cover made from the game's icon: its colors as a gradient, a streak of

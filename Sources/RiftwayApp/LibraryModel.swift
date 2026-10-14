@@ -262,8 +262,18 @@ final class LibraryModel {
     // MARK: Settings and housekeeping
 
     func setDiagnostics(_ entry: LibraryEntry, _ on: Bool) {
+        setOptions(entry) { $0.diagnostics = on }
+    }
+
+    /// The game's Direct3D 11 (nil: what its profile says).
+    func setDirect3D11(_ entry: LibraryEntry, _ backend: Direct3D11?) {
+        setOptions(entry) { $0.direct3D11 = backend }
+    }
+
+    /// Changes the player's options and rebuilds the bridge, which carries them.
+    private func setOptions(_ entry: LibraryEntry, _ change: (inout GameOptions) -> Void) {
         var record = entry.record
-        record.options.diagnostics = on
+        change(&record.options)
         do {
             try library.save(record, in: entry.root)
             if entry.game.bridge != nil, let updated = library.entry(at: entry.root) {
