@@ -105,4 +105,24 @@ let steamConfig = #"""
         #expect(ControllerOutput("key:NOPE") == nil)
         #expect(KeyCodes.code(for: "back_tick") == 0x32)
     }
+
+    @Test func controllerFamilies() {
+        #expect(ControllerFamily(productCategory: "DualShock 4") == .playStation4)
+        #expect(ControllerFamily(productCategory: "DualSense") == .playStation5)
+        #expect(ControllerFamily(productCategory: "Xbox One") == .xbox)
+        #expect(ControllerFamily(productCategory: "Switch Pro Controller") == .switchPro)
+        #expect(ControllerFamily(productCategory: "Nintendo Switch Joy-Con (L/R)") == .joyCon)
+        #expect(ControllerFamily(vendorID: 0x054c, productID: 0x09cc) == .playStation4)
+        #expect(ControllerFamily(vendorID: 0x054c, productID: 0x0ce6) == .playStation5)
+        #expect(ControllerFamily(vendorID: 0x045e, productID: 0x0b13) == .xbox)
+        #expect(ControllerFamily(vendorID: 0x0079, productID: 0x0006) == .generic)
+        #expect(ControllerFamily.playStation4.label(.a) == "✕")
+        #expect(ControllerFamily.xbox.label(.l2) == "LT")
+        #expect(ControllerFamily.switchPro.label(.a) == "B")  // bottom button
+        #expect(!ControllerFamily.xbox.buttons.contains(.touchpadLeft))
+        #expect(KeyCodes.name(for: 0x31) == "SPACE")
+        #expect(KeyCodes.name(for: 0x38) == "LEFT_SHIFT")
+        #expect(KeyCodes.displayName("BACK_TICK") == "`")
+        #expect(KeyCodes.displayName("KEYPAD_DASH") == "Num -")
+    }
 }

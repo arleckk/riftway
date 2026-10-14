@@ -24,7 +24,13 @@ cp "$BIN/riftway-shim" "$BIN/riftway" "$APP/Contents/Helpers/"
 
 # Riftway Input: its own background app, so macOS asks for the Accessibility
 # permission for it (not for Riftway or a game's bridge), once.
+# INPUT_HELPER_FROM=<an installed Riftway Input.app> reuses it as is: with an
+# ad hoc signature, macOS ties the Accessibility permission to the exact
+# build, so an unchanged helper keeps it.
 INPUT="$APP/Contents/Helpers/Riftway Input.app"
+if [ -n "${INPUT_HELPER_FROM:-}" ]; then
+    ditto "$INPUT_HELPER_FROM" "$INPUT"
+else
 mkdir -p "$INPUT/Contents/MacOS"
 cp "$BIN/riftway-input" "$INPUT/Contents/MacOS/Riftway Input"
 VERSION="$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" app/Info.plist)"
@@ -44,6 +50,7 @@ cat > "$INPUT/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+fi
 cp LICENSE "$APP/Contents/Resources/LICENSE" 2>/dev/null || true
 # Game profiles (PRD-05); the app and the CLI in Helpers read them from here.
 mkdir -p "$APP/Contents/Resources/Profiles"
@@ -55,7 +62,7 @@ else
     sign() { codesign --force --sign "$IDENTITY" --options runtime --timestamp "$@"; }
 fi
 sign "$APP/Contents/Helpers/riftway-shim" "$APP/Contents/Helpers/riftway"
-sign "$INPUT"
+[ -n "${INPUT_HELPER_FROM:-}" ] || sign "$INPUT"
 sign "$APP"
 codesign --verify --strict "$APP"
 echo "Built $APP ($CONFIG, signed $( [ "$IDENTITY" = "-" ] && echo "ad hoc" || echo "with $IDENTITY" ))"

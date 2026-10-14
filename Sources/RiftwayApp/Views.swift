@@ -131,6 +131,7 @@ private struct GameGrid: View {
     let add: () -> Void
     @State private var trashCandidate: LibraryEntry?
     @State private var playSettings: LibraryEntry?
+    @State private var controllerSettings: LibraryEntry?
 
     var body: some View {
         ScrollView {
@@ -146,6 +147,9 @@ private struct GameGrid: View {
         }
         .sheet(item: $playSettings) { entry in
             PlaySettingsView(entry: entry, library: library)
+        }
+        .sheet(item: $controllerSettings) { entry in
+            ControllerEditorView(entry: entry, library: library)
         }
         .confirmationDialog("¿Mover \(trashCandidate?.game.name ?? "") a la Papelera?",
                             isPresented: Binding(get: { trashCandidate != nil }, set: { if !$0 { trashCandidate = nil } }),
@@ -169,6 +173,7 @@ private struct GameGrid: View {
         }
         Divider()
         Button("Configurar Jugar…") { playSettings = entry }
+        Button("Configurar control…") { controllerSettings = entry }
         Toggle("Modo diagnóstico", isOn: Binding(get: { entry.record.options.diagnostics },
                                                  set: { library.setDiagnostics(entry, $0) }))
         Button("Abrir logs") { library.showLogs(entry) }

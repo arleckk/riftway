@@ -207,3 +207,44 @@ public struct ControllerLayout: Codable, Equatable, Sendable {
         try encoder.encode(self).write(to: root.appendingPathComponent(Self.fileName), options: .atomic)
     }
 }
+
+extension ControllerLayout {
+    /// Programs of a game the player may want to set up: the game's programs,
+    /// those its URL protocols start (a launcher), and the `.exe` files in
+    /// their folders (the game a launcher starts), helpers left out.
+    public static func programSuggestions(for entry: LibraryEntry, limit: Int = 40) -> [String] {
+        let bottle = Bottle(name: entry.id, prefix: entry.root.appendingPathComponent("prefix").path, backend: .wine(wine: "/usr/bin/false"))
+        var paths = ([entry.game.primary] + entry.game.programs).compactMap { $0?.windowsPath }
+        if let uninstall = entry.game.uninstall?.uninstallString, let program = WindowsCommandLine.split(uninstall).first { paths.append(program) }
+        if let system = try? WineRegistry(contentsOf: entry.root.appendingPathComponent("prefix/system.reg")) {
+            let user = try? WineRegistry(contentsOf: entry.root.appendingPathComponent("prefix/user.reg"))
+            for registration in URLProtocolRegistration.discover(system: system, user: user) where entry.game.schemes.contains(registration.scheme) {
+                if let exe = registration.windowsExecutable { paths.append(exe) }
+            }
+        }
+        var names: [String] = []
+        func add(_ name: String) {
+            let lower = name.lowercased()
+            guard lower.hasSuffix(".exe"), !names.contains(where: { $0.lowercased() == lower }),
+                  !InstallDiscovery.isUninstaller(name), !InstallDiscovery.isHelper(name),
+                  !["crashreportclient.exe", "unrealcefsubprocess.exe", "xm.exe"].contains(lower) else { return }
+            names.append(name)
+        }
+        var folders: [URL] = []
+        for path in paths {
+            add(path.split(whereSeparator: { $0 == "\\" || $0 == "/" }).last.map(String.init) ?? path)
+            if let file = bottle.unixURL(forWindowsPath: path) { folders.append(file.deletingLastPathComponent()) }
+        }
+        let fm = FileManager.default
+        for folder in Set(folders) {
+            guard let walker = fm.enumerator(at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { continue }
+            var seen = 0
+            while let file = walker.nextObject() as? URL, seen < 5000, names.count < limit {
+                seen += 1
+                if walker.level > 5 { walker.skipDescendants(); continue }
+                if file.pathExtension.lowercased() == "exe" { add(file.lastPathComponent) }
+            }
+        }
+        return names
+    }
+}

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Estado | Capas 0 y 2 implementadas (2026-10-14); falta el editor en la app |
+| Estado | Capas 0 y 2 implementadas, con editor en la app (2026-10-14) |
 | Hito | Después de M5 (propuesto como M6) |
 | Relacionado | [PRD-05](PRD-05-perfiles-y-compatibilidad.md) (perfiles), [PRD-07](PRD-07-compatibilidad-online.md) (línea roja) |
 
@@ -160,7 +160,11 @@ como las demás opciones.
    L1 + cruceta, Digimon 2 `A S D F`; R1 + cruceta, Digimon 3 `Z X C V`; caras con
    L1/R1 = `1`–`4`), más el stick derecho como mouse para la cámara
    (`--pointer touchpad,rightStick`).
-4. Editor de mapeos en la app y la sección `controller` de los perfiles.
+4. ✅ Editor en la app (clic derecho › Configurar control…): controles conectados con
+   familia y batería, modo por programa, botones con los nombres de cada control,
+   asignar una tecla presionándola, clics, capas, qué mueve el mouse, importar de
+   Steam Input y prueba en vivo (el botón presionado se ilumina y se selecciona).
+   Falta: la sección `controller` de los perfiles, para compartir mapeos.
 5. Capa 1 (remapeo de SDL) y la opción de PlayStation crudo.
 
 ## Implementación (capa 2)
@@ -192,4 +196,17 @@ como las demás opciones.
   abierto por otro programa de Windows (el juego de DSR, que abre `Client.exe`), con su
   ruta de Windows (`C:\…`). En ese caso pertenece a la botella si su carpeta de trabajo
   está en el prefijo. Probado con `cmd /c start` en el corpus.
+
+## Controles detectados
+
+`ControllerFamily`: DualShock 4, DualSense (y Edge), Xbox, Switch Pro, Joy-Con y genérico,
+por la categoría que da GameController o, en HID, por fabricante y producto. Cada familia
+da los nombres de los botones (✕ ○ □ △ / A B X Y / B A Y X de Nintendo, L1 / LB / L…).
+Los botones se guardan por posición (nombres de Xbox), así que un mapeo sirve con
+cualquier control. GameController lee los controles que macOS soporta; los genéricos
+solo se listan por HID (sin abrirlos, para no pedir Monitoreo de entrada): les llega a los
+juegos con soporte de control por Wine (SDL), pero Riftway Input no puede traducirlos.
+
+`scripts/build-app.sh` acepta `INPUT_HELPER_FROM=<Riftway Input.app instalado>` para
+reutilizar un ayudante que no cambió y conservar su permiso de Accesibilidad.
 

@@ -325,6 +325,14 @@ final class LibraryModel {
         }
     }
 
+    /// Saves the game's controller setup. A running Riftway Input picks it up
+    /// at once; the next launch starts it if the setup needs it.
+    func saveController(_ layout: ControllerLayout, for entry: LibraryEntry) throws {
+        try layout.write(bottle: entry.root)
+        log.write("app: \(entry.game.name) controller setup saved (\(layout.programs.count) programs)")
+        if running.contains(entry.id) { InputHelper.startIfNeeded(app: InputHelper.bundle(nextTo: shimBinary), bottleRoot: entry.root) }
+    }
+
     func rebuildBridge(_ entry: LibraryEntry) {
         do {
             let app = try GameLauncher.makeBridge(for: entry, shimBinary: shimBinary, home: library.home)
