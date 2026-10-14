@@ -52,6 +52,7 @@ cat > "$INPUT/Contents/Info.plist" <<PLIST
 PLIST
 fi
 cp LICENSE "$APP/Contents/Resources/LICENSE" 2>/dev/null || true
+cp app/Riftway.icns "$APP/Contents/Resources/Riftway.icns"
 # Game profiles (PRD-05); the app and the CLI in Helpers read them from here.
 mkdir -p "$APP/Contents/Resources/Profiles"
 cp profiles/*.json "$APP/Contents/Resources/Profiles/"

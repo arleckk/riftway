@@ -16,6 +16,9 @@
 	<string>Riftway</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<!-- app/Riftway.icns, made by scripts/make-icon.sh from app/icon/Riftway.svg. -->
+	<key>CFBundleIconFile</key>
+	<string>Riftway</string>
 	<key>CFBundleShortVersionString</key>
 	<string>0.1.0</string>
 	<key>CFBundleVersion</key>
