@@ -37,6 +37,10 @@ final class LibraryModel {
     private var starting: [String: Date] = [:]
     private var watcher: Task<Void, Never>?
     private(set) var icons: [String: NSImage] = [:]
+    /// Each game's generated cover, from its icon (Riftway's own without one).
+    private(set) var palettes: [String: CoverPalette] = [:]
+    /// When each open game was first seen open, for its session time.
+    private(set) var runningSince: [String: Date] = [:]
     var job: InstallJob?
     /// An error to show in an alert.
     var problem: String?
@@ -68,6 +72,8 @@ final class LibraryModel {
         now.formUnion(starting.keys)
         let closed = running.subtracting(now)
         if now != running { running = now }
+        for id in now where runningSince[id] == nil { runningSince[id] = Date() }
+        for id in runningSince.keys where !now.contains(id) { runningSince[id] = nil }
         for id in closed {
             if let entry = entries.first(where: { $0.id == id }) { sessionEnded(entry) }
         }
@@ -100,6 +106,9 @@ final class LibraryModel {
         entries = library.entries()
         for entry in entries where icons[entry.id] == nil {
             if let data = GameLauncher.iconData(for: entry), let image = NSImage(data: data) { icons[entry.id] = image }
+        }
+        for entry in entries where palettes[entry.id] == nil {
+            palettes[entry.id] = icons[entry.id]?.coverPalette ?? .riftway
         }
     }
 
@@ -361,6 +370,7 @@ final class LibraryModel {
             }
             try fm.trashItem(at: entry.root, resultingItemURL: nil)
             icons[entry.id] = nil
+            palettes[entry.id] = nil
         } catch {
             problem = "\(error)"
         }

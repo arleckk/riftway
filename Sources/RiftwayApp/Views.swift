@@ -3,31 +3,38 @@ import RiftwayCore
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum SidebarItem: Hashable {
+    case library, playing, runtimes
+}
+
+/// The main window: a sidebar and the library, the games open now or the
+/// installed runtimes (PRD-04).
 struct LibraryView: View {
     @Bindable var model: AppModel
     @Bindable var library: LibraryModel
     @Bindable var updates: UpdateModel
     @State private var isTargeted = false
+    @State private var item: SidebarItem? = .library
+    @State private var search = ""
+    @State private var controllers = ControllerStatus()
+
+    init(model: AppModel, library: LibraryModel, updates: UpdateModel, item: SidebarItem = .library) {
+        self.model = model
+        self.library = library
+        self.updates = updates
+        _item = State(initialValue: item)
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if SystemRequirements.needsRosetta {
-                RosettaBanner()
-            }
-            if library.runtimes.isEmpty {
-                RuntimeBanner { library.chooseRuntime() }
-            }
-            if library.entries.isEmpty {
-                DropZone(isTargeted: isTargeted) { model.chooseFiles() }
-            } else {
-                GameGrid(library: library) { model.chooseFiles() }
-                    .overlay {
-                        if isTargeted {
-                            RoundedRectangle(cornerRadius: 14).strokeBorder(Color.accentColor, lineWidth: 2).padding(8)
-                        }
-                    }
-            }
+        NavigationSplitView {
+            Sidebar(item: $item, library: library, controllers: controllers)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
+        } detail: {
+            detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Theme.canvas)
         }
+        .tint(Theme.violet)
         .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
             for provider in providers {
                 _ = provider.loadObject(ofClass: URL.self) { url, _ in
@@ -63,143 +70,256 @@ struct LibraryView: View {
         .onAppear {
             library.reload()
             library.startWatching()
+            controllers.start()
+        }
+    }
+
+    @ViewBuilder private var detail: some View {
+        switch item ?? .library {
+        case .library: LibraryPage(model: model, library: library, search: $search, isTargeted: isTargeted)
+        case .playing: PlayingPage(library: library)
+        case .runtimes: RuntimesPage(library: library)
         }
     }
 }
 
-private struct RosettaBanner: View {
+private struct Sidebar: View {
+    @Binding var item: SidebarItem?
+    let library: LibraryModel
+    let controllers: ControllerStatus
+
+    var body: some View {
+        List(selection: $item) {
+            Label("Biblioteca", systemImage: "square.grid.2x2").tag(SidebarItem.library)
+            Label("Jugando", systemImage: "play.circle").badge(library.running.count).tag(SidebarItem.playing)
+            Section("Sistema") {
+                Label("Runtimes", systemImage: "shippingbox").tag(SidebarItem.runtimes)
+            }
+        }
+        .safeAreaInset(edge: .bottom) { SidebarFooter(controllers: controllers) }
+    }
+}
+
+/// The connected controller and the way to Settings, at the sidebar's foot.
+private struct SidebarFooter: View {
+    let controllers: ControllerStatus
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let pad = controllers.pads.first {
+                HStack(spacing: 8) {
+                    Image(systemName: "gamecontroller.fill").foregroundStyle(Theme.cyan)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(pad.name).font(.caption.weight(.medium)).lineLimit(1)
+                        if let battery = pad.battery {
+                            Text("\(pad.charging ? "Cargando" : "Batería") \(Int((battery * 100).rounded())) %")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.card))
+                .accessibilityElement(children: .combine)
+            }
+            Button {
+                NSApp.sendAction(Selector(("showSettings:")), to: nil, from: nil)
+            } label: {
+                Label("Ajustes", systemImage: "gearshape")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+    }
+}
+
+// MARK: Pages
+
+private struct LibraryPage: View {
+    @Bindable var model: AppModel
+    @Bindable var library: LibraryModel
+    @Binding var search: String
+    let isTargeted: Bool
+
+    var body: some View {
+        let shown = library.entries.filter { search.isEmpty || $0.game.name.localizedCaseInsensitiveContains(search) }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                if SystemRequirements.needsRosetta {
+                    PageNotice(symbol: "exclamationmark.triangle.fill",
+                               text: "Los juegos de Windows necesitan Rosetta 2. Instálalo desde Terminal con: softwareupdate --install-rosetta")
+                }
+                if library.runtimes.isEmpty {
+                    PageNotice(symbol: "shippingbox", text: "Falta el runtime de Windows. Mientras no haya descargas, elige un runtime compilado.",
+                               action: ("Elegir runtime…", { library.chooseRuntime() }))
+                }
+                if library.entries.isEmpty {
+                    EmptyLibrary(isTargeted: isTargeted) { model.chooseFiles() }
+                } else if shown.isEmpty {
+                    ContentUnavailableView.search(text: search).frame(maxWidth: .infinity, minHeight: 300)
+                } else {
+                    CoverGrid(entries: shown, library: library, add: search.isEmpty ? { model.chooseFiles() } : nil)
+                }
+            }
+            .padding(24)
+        }
+        .overlay {
+            if isTargeted && !library.entries.isEmpty {
+                RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.violet, lineWidth: 2).padding(10)
+            }
+        }
+        .navigationTitle("Biblioteca")
+        .navigationSubtitle(library.entries.count == 1 ? "1 juego" : "\(library.entries.count) juegos")
+        .searchable(text: $search, placement: .toolbar, prompt: "Buscar")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { model.chooseFiles() } label: { Label("Instalar juego", systemImage: "plus") }
+                    .help("Instala un juego desde su instalador de Windows (⌘O)")
+            }
+        }
+    }
+}
+
+private struct PlayingPage: View {
+    @Bindable var library: LibraryModel
+
+    var body: some View {
+        let open = library.entries.filter { library.running.contains($0.id) }
+        Group {
+            if open.isEmpty {
+                ContentUnavailableView("Ningún juego abierto", systemImage: "play.circle",
+                                       description: Text("Los juegos que abras desde Riftway o desde su sitio aparecen aquí."))
+            } else {
+                ScrollView {
+                    CoverGrid(entries: open, library: library, add: nil).padding(24)
+                }
+            }
+        }
+        .navigationTitle("Jugando")
+        .navigationSubtitle("")
+    }
+}
+
+private struct RuntimesPage: View {
+    @Bindable var library: LibraryModel
+
+    var body: some View {
+        Group {
+            if library.runtimes.isEmpty {
+                ContentUnavailableView {
+                    Label("Sin runtimes", systemImage: "shippingbox")
+                } description: {
+                    Text("El runtime es el Windows de Riftway: Wine, DXMT y los decodificadores de video.")
+                } actions: {
+                    Button("Instalar runtime…") { library.chooseRuntime() }
+                }
+            } else {
+                List {
+                    Section {
+                        ForEach(Array(library.runtimes.enumerated()), id: \.element.version) { index, installed in
+                            RuntimeRow(installed: installed, isDefault: index == 0,
+                                       games: library.entries.filter { $0.record.runtimeVersion == installed.version }.map(\.game.name))
+                        }
+                    } footer: {
+                        Text("Cada juego usa el runtime con el que se instaló o al que lo cambiaste; los juegos nuevos usan el más reciente.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .scrollContentBackground(.hidden)
+            }
+        }
+        .navigationTitle("Runtimes")
+        .navigationSubtitle("")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { library.chooseRuntime() } label: { Label("Instalar runtime", systemImage: "plus") }
+                    .help("Instala un runtime compilado")
+            }
+        }
+    }
+}
+
+private struct RuntimeRow: View {
+    let installed: RiftwayHome.InstalledRuntime
+    let isDefault: Bool
+    let games: [String]
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "shippingbox.fill").font(.title3).foregroundStyle(Theme.violet)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(installed.version).font(.body.weight(.medium))
+                    if isDefault {
+                        Text("Para juegos nuevos").font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .foregroundStyle(Theme.violet)
+                            .background(Capsule().fill(Theme.violet.opacity(0.14)))
+                    }
+                }
+                Text(games.isEmpty ? "Sin juegos" : games.joined(separator: ", "))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            Button("Mostrar en Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: installed.runtime.root)])
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+// MARK: Pieces
+
+/// A warning that the page needs something (Rosetta, a runtime), as a card.
+private struct PageNotice: View {
+    let symbol: String
+    let text: String
+    var action: (String, () -> Void)?
+
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-            Text("Los juegos de Windows necesitan Rosetta 2. Instálalo desde Terminal con: softwareupdate --install-rosetta")
-                .textSelection(.enabled)
+            Image(systemName: symbol).foregroundStyle(Theme.playable)
+            Text(text).font(.callout).textSelection(.enabled)
             Spacer()
+            if let action { Button(action.0, action: action.1) }
         }
         .padding(12)
-        .background(Color.orange.opacity(0.12))
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.playable.opacity(0.12)))
     }
 }
 
-private struct RuntimeBanner: View {
-    let choose: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "shippingbox").foregroundStyle(.orange)
-            Text("Falta el runtime de Windows. Mientras no haya descargas, elige un runtime compilado.")
-                .font(.callout)
-            Spacer()
-            Button("Elegir runtime…", action: choose)
-        }
-        .padding(.horizontal, 16).padding(.vertical, 10)
-        .background(Color.orange.opacity(0.1))
-    }
-}
-
-private struct DropZone: View {
+/// The library before the first game: an invitation to drop an installer.
+private struct EmptyLibrary: View {
     let isTargeted: Bool
     let choose: () -> Void
 
     var body: some View {
         VStack(spacing: 18) {
-            Image(systemName: "arrow.down.app")
-                .font(.system(size: 44, weight: .light))
-                .foregroundStyle(isTargeted ? Color.accentColor : .secondary)
+            ZStack {
+                Circle().fill(LinearGradient(colors: [Theme.violet, Theme.pink], startPoint: .topLeading, endPoint: .bottomTrailing))
+                Image(systemName: "arrow.down").font(.system(size: 30, weight: .semibold)).foregroundStyle(.white)
+            }
+            .frame(width: 76, height: 76)
+            .scaleEffect(isTargeted ? 1.08 : 1)
+            .animation(.snappy, value: isTargeted)
             VStack(spacing: 6) {
-                Text("Arrastra aquí un instalador de Windows")
-                    .font(.title3.weight(.semibold))
-                Text("Archivos .exe o .msi. También puedes darles doble clic en Finder.")
-                    .foregroundStyle(.secondary)
+                Text("Arrastra aquí un instalador de Windows").font(.title3.weight(.semibold))
+                Text("Archivos .exe o .msi. También puedes darles doble clic en Finder.").foregroundStyle(.secondary)
             }
             Button("Elegir archivo…", action: choose)
                 .keyboardShortcut("o")
                 .controlSize(.large)
+                .buttonStyle(.borderedProminent)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(40)
+        .frame(maxWidth: .infinity, minHeight: 380)
         .background {
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [7, 5]))
-                .foregroundStyle(isTargeted ? Color.accentColor : Color.secondary.opacity(0.4))
-                .padding(20)
-        }
-    }
-}
-
-private struct GameGrid: View {
-    @Bindable var library: LibraryModel
-    let add: () -> Void
-    @State private var trashCandidate: LibraryEntry?
-    @State private var playSettings: LibraryEntry?
-    @State private var controllerSettings: LibraryEntry?
-
-    var body: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 18)], spacing: 18) {
-                ForEach(library.entries) { entry in
-                    GameTile(entry: entry, icon: library.icons[entry.id], isRunning: library.running.contains(entry.id),
-                             play: { library.play(entry) }, stop: { library.stop(entry) })
-                        .contextMenu { menu(entry) }
-                }
-                AddTile(action: add)
-            }
-            .padding(20)
-        }
-        .sheet(item: $playSettings) { entry in
-            PlaySettingsView(entry: entry, library: library)
-        }
-        .sheet(item: $controllerSettings) { entry in
-            ControllerEditorView(entry: entry, library: library)
-        }
-        .confirmationDialog("¿Mover \(trashCandidate?.game.name ?? "") a la Papelera?",
-                            isPresented: Binding(get: { trashCandidate != nil }, set: { if !$0 { trashCandidate = nil } }),
-                            presenting: trashCandidate) { entry in
-            Button("Mover a la Papelera", role: .destructive) { library.moveToTrash(entry) }
-        } message: { _ in
-            Text("Se mueven a la Papelera la botella (con el juego y sus partidas locales) y su app puente. Puedes recuperarlas desde ahí.")
-        }
-    }
-
-    @ViewBuilder private func menu(_ entry: LibraryEntry) -> some View {
-        Button("Jugar") { library.play(entry) }
-        let others = entry.game.programs.filter { $0.id != entry.game.primary?.id }
-        if !others.isEmpty {
-            Menu("Abrir otro programa") {
-                ForEach(others) { program in Button(program.name) { library.play(entry, program: program) } }
-            }
-        }
-        if library.running.contains(entry.id) {
-            Button("Terminar todos sus procesos") { library.stop(entry) }
-        }
-        Divider()
-        Button("Configurar Jugar…") { playSettings = entry }
-        Button("Configurar control…") { controllerSettings = entry }
-        Toggle("Modo diagnóstico", isOn: Binding(get: { entry.record.options.diagnostics },
-                                                 set: { library.setDiagnostics(entry, $0) }))
-        Button("Abrir logs") { library.showLogs(entry) }
-        Button("Abrir disco C: en Finder") { library.showDriveC(entry) }
-        Button("Reconstruir app puente") { library.rebuildBridge(entry) }
-        profileMenu(entry)
-        Divider()
-        if entry.game.uninstall?.uninstallString != nil {
-            Button("Desinstalar juego…") { library.uninstall(entry) }
-        }
-        Button("Mover a la Papelera…", role: .destructive) { trashCandidate = entry }
-    }
-}
-
-extension GameGrid {
-    @ViewBuilder func profileMenu(_ entry: LibraryEntry) -> some View {
-        let isOpen = library.running.contains(entry.id)
-        if let profile = entry.profile {
-            Menu("Perfil: \(profile.name)") {
-                Text(ReportText.status(profile.status) + " · revisión \(profile.revision)")
-                Button(entry.profileIsStale ? "Aplicar la revisión nueva" : "Volver a aplicar") { library.setProfile(entry, profile) }
-                    .disabled(isOpen)
-                Button("Quitar perfil") { library.setProfile(entry, nil) }.disabled(isOpen)
-            }
-        } else if let suggested = library.suggestedProfile(for: entry) {
-            Button("Aplicar perfil de \(suggested.name)") { library.setProfile(entry, suggested) }.disabled(isOpen)
+                .foregroundStyle(isTargeted ? Theme.violet : Color.secondary.opacity(0.35))
         }
     }
 }
@@ -219,12 +339,7 @@ struct StatusBadge: View {
     }
 
     private var color: Color {
-        switch compatibility.status {
-        case .verified: .green
-        case .playable: .yellow
-        case .untested: .orange
-        case .blocked: .red
-        }
+        compatibility.status == .untested ? Theme.playable : Theme.color(compatibility.status)
     }
 }
 
@@ -242,80 +357,6 @@ struct CompatibilityNotice: View {
             }
             Notice(text: text.text, tone: text.tone, symbol: compatibility.status == .verified ? "checkmark.seal" : nil)
         }
-    }
-}
-
-private struct GameTile: View {
-    let entry: LibraryEntry
-    let icon: NSImage?
-    let isRunning: Bool
-    let play: () -> Void
-    let stop: () -> Void
-
-    var body: some View {
-        VStack(spacing: 10) {
-            Group {
-                if let icon {
-                    Image(nsImage: icon).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
-                } else {
-                    Image(systemName: "gamecontroller").font(.system(size: 40, weight: .light)).foregroundStyle(.secondary)
-                }
-            }
-            .frame(width: 72, height: 72)
-            VStack(spacing: 2) {
-                Text(entry.game.name).font(.headline).lineLimit(2).multilineTextAlignment(.center)
-                Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            if isRunning {
-                Button(action: stop) { Label("Detener", systemImage: "stop.fill") }
-            } else {
-                Button(action: play) { Label("Jugar", systemImage: "play.fill") }
-                    .buttonStyle(.borderedProminent)
-                    .disabled((entry.game.primary == nil && entry.game.customLaunch == nil)
-                              || (entry.runtime == nil && (entry.game.customLaunch != nil || entry.game.primary?.windowsPath != nil)))
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 190)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.08)))
-        .overlay(alignment: .topTrailing) {
-            StatusBadge(compatibility: entry.compatibility).padding(8)
-        }
-        .help(ReportText.compatibility(entry.compatibility, installed: true).text)
-    }
-
-    private var subtitle: String {
-        if isRunning { return "Abierto" }
-        if entry.runtime == nil { return "Falta el runtime \(entry.record.runtimeVersion)" }
-        if GameLauncher.primaryIsMissing(entry) { return "Falta el programa: revisa Configurar Jugar" }
-        switch entry.game.customLaunch {
-        case .link?: return "Abre con tu enlace guardado"
-        case .command?: return "Abre con tu comando"
-        case nil: break
-        }
-        if entry.game.primary == nil { return "Sin programa para abrir" }
-        if case .web = entry.game.primary?.target { return "Se abre desde su sitio" }
-        return entry.game.publisher ?? ""
-    }
-}
-
-private struct AddTile: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 10) {
-                Image(systemName: "plus").font(.system(size: 30, weight: .light))
-                Text("Instalar un juego…").font(.callout)
-            }
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, minHeight: 190)
-            .background {
-                RoundedRectangle(cornerRadius: 12).strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
-                    .foregroundStyle(Color.secondary.opacity(0.4))
-            }
-        }
-        .buttonStyle(.plain)
     }
 }
 

@@ -20,20 +20,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 560),
-                              styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        #if DEBUG
+        if let index = CommandLine.arguments.firstIndex(of: "--snapshot"), index + 1 < CommandLine.arguments.count {
+            return snapshot(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
+        }
+        #endif
+        let size = NSSize(width: 1040, height: 680), minimum = NSSize(width: 760, height: 480)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
         window.title = "Riftway"
-        window.contentMinSize = NSSize(width: 600, height: 420)
+        window.toolbarStyle = .unified
+        window.contentMinSize = minimum
         let host = NSHostingController(rootView: LibraryView(model: model, library: library, updates: updates)
-            .frame(minWidth: 600, minHeight: 420))
+            .frame(minWidth: minimum.width, minHeight: minimum.height))
         // The window keeps its own size; the library's grid has no ideal width
         // and would shrink it to a sliver.
         host.sizingOptions = []
+        // The sidebar's toolbar (Install, search) and each page's title.
+        host.sceneBridgingOptions = [.toolbars, .title]
         window.contentViewController = host
-        window.setContentSize(NSSize(width: 820, height: 560))
-        window.setFrameAutosaveName("Main")
-        if !window.setFrameUsingName("Main") || window.frame.width < 600 || window.frame.height < 420 {
-            window.setContentSize(NSSize(width: 820, height: 560))
+        window.setContentSize(size)
+        // A new name: the sidebar window wants more room than the old grid's.
+        window.setFrameAutosaveName("Main.v2")
+        if !window.setFrameUsingName("Main.v2") || window.frame.width < minimum.width || window.frame.height < minimum.height {
+            window.setContentSize(size)
             window.center()
         }
         window.isReleasedWhenClosed = false
@@ -45,6 +56,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         library.rebuildBridgesAfterUpdate()
         updates.checkIfDue()
     }
+
+    #if DEBUG
+    /// Draws the main window off screen, light and dark, into PNGs in `folder`
+    /// (a development check of the design; it never shows a window).
+    private func snapshot(to folder: URL) {
+        NSApp.setActivationPolicy(.prohibited)
+        Task { @MainActor in
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            for (page, item) in [("library", SidebarItem.library), ("playing", .playing), ("runtimes", .runtimes)] {
+                let view = NSHostingView(rootView: LibraryView(model: model, library: library, updates: updates, item: item))
+                view.frame = NSRect(x: 0, y: 0, width: 1040, height: 680)
+                let window = NSWindow(contentRect: view.frame, styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+                window.contentView = view
+                for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+                    window.appearance = NSAppearance(named: appearance)
+                    try? await Task.sleep(for: .seconds(1.5))
+                    view.layoutSubtreeIfNeeded()
+                    guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+                    view.cacheDisplay(in: view.bounds, to: bitmap)
+                    try? bitmap.representation(using: .png, properties: [:])?.write(to: folder.appendingPathComponent("\(page)-\(name).png"))
+                }
+            }
+            NSApp.terminate(nil)
+        }
+    }
+    #endif
 
     func application(_ application: NSApplication, open urls: [URL]) {
         if launched { model.open(urls); showMain() } else { early.append(contentsOf: urls) }

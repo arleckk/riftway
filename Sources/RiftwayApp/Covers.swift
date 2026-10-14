@@ -1,0 +1,257 @@
+import AppKit
+import RiftwayCore
+import SwiftUI
+
+/// Games as covers (2:3), with the per-game menu and its sheets (PRD-04 R1.1, R1.3).
+struct CoverGrid: View {
+    let entries: [LibraryEntry]
+    @Bindable var library: LibraryModel
+    /// The install tile at the end, when the grid shows the whole library.
+    let add: (() -> Void)?
+    @State private var trashCandidate: LibraryEntry?
+    @State private var playSettings: LibraryEntry?
+    @State private var controllerSettings: LibraryEntry?
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 190), spacing: 22, alignment: .top)],
+                  alignment: .leading, spacing: 26) {
+            ForEach(entries) { entry in
+                CoverTile(entry: entry, icon: library.icons[entry.id], palette: library.palettes[entry.id] ?? .riftway,
+                          runningSince: library.running.contains(entry.id) ? (library.runningSince[entry.id] ?? Date()) : nil,
+                          play: { library.play(entry) }, stop: { library.stop(entry) })
+                    .contextMenu { menu(entry) }
+            }
+            if let add { AddCover(action: add) }
+        }
+        .sheet(item: $playSettings) { entry in
+            PlaySettingsView(entry: entry, library: library)
+        }
+        .sheet(item: $controllerSettings) { entry in
+            ControllerEditorView(entry: entry, library: library)
+        }
+        .confirmationDialog("¿Mover \(trashCandidate?.game.name ?? "") a la Papelera?",
+                            isPresented: Binding(get: { trashCandidate != nil }, set: { if !$0 { trashCandidate = nil } }),
+                            presenting: trashCandidate) { entry in
+            Button("Mover a la Papelera", role: .destructive) { library.moveToTrash(entry) }
+        } message: { _ in
+            Text("Se mueven a la Papelera la botella (con el juego y sus partidas locales) y su app puente. Puedes recuperarlas desde ahí.")
+        }
+    }
+
+    @ViewBuilder private func menu(_ entry: LibraryEntry) -> some View {
+        Button("Jugar") { library.play(entry) }
+        let others = entry.game.programs.filter { $0.id != entry.game.primary?.id }
+        if !others.isEmpty {
+            Menu("Abrir otro programa") {
+                ForEach(others) { program in Button(program.name) { library.play(entry, program: program) } }
+            }
+        }
+        if library.running.contains(entry.id) {
+            Button("Terminar todos sus procesos") { library.stop(entry) }
+        }
+        Divider()
+        Button("Configurar Jugar…") { playSettings = entry }
+        Button("Configurar control…") { controllerSettings = entry }
+        Toggle("Modo diagnóstico", isOn: Binding(get: { entry.record.options.diagnostics },
+                                                 set: { library.setDiagnostics(entry, $0) }))
+        Button("Abrir logs") { library.showLogs(entry) }
+        Button("Abrir disco C: en Finder") { library.showDriveC(entry) }
+        Button("Reconstruir app puente") { library.rebuildBridge(entry) }
+        profileMenu(entry)
+        Divider()
+        if entry.game.uninstall?.uninstallString != nil {
+            Button("Desinstalar juego…") { library.uninstall(entry) }
+        }
+        Button("Mover a la Papelera…", role: .destructive) { trashCandidate = entry }
+    }
+
+    @ViewBuilder private func profileMenu(_ entry: LibraryEntry) -> some View {
+        let isOpen = library.running.contains(entry.id)
+        if let profile = entry.profile {
+            Menu("Perfil: \(profile.name)") {
+                Text(ReportText.status(profile.status) + " · revisión \(profile.revision)")
+                Button(entry.profileIsStale ? "Aplicar la revisión nueva" : "Volver a aplicar") { library.setProfile(entry, profile) }
+                    .disabled(isOpen)
+                Button("Quitar perfil") { library.setProfile(entry, nil) }.disabled(isOpen)
+            }
+        } else if let suggested = library.suggestedProfile(for: entry) {
+            Button("Aplicar perfil de \(suggested.name)") { library.setProfile(entry, suggested) }.disabled(isOpen)
+        }
+    }
+}
+
+/// One game: its cover, name and state. Play shows on hover; a double click
+/// plays too.
+private struct CoverTile: View {
+    let entry: LibraryEntry
+    let icon: NSImage?
+    let palette: CoverPalette
+    /// When the game was opened, if it is open.
+    let runningSince: Date?
+    let play: () -> Void
+    let stop: () -> Void
+    @State private var hovering = false
+
+    private var canPlay: Bool {
+        !((entry.game.primary == nil && entry.game.customLaunch == nil)
+          || (entry.runtime == nil && (entry.game.customLaunch != nil || entry.game.primary?.windowsPath != nil)))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GameCover(name: entry.game.name, icon: icon, palette: palette)
+                .overlay(alignment: .bottomLeading) {
+                    if let runningSince { SessionPill(since: runningSince).padding(8) }
+                }
+                .overlay {
+                    if hovering {
+                        if runningSince != nil {
+                            Button(action: stop) { Label("Detener", systemImage: "stop.fill") }
+                                .buttonStyle(.borderedProminent).tint(.black.opacity(0.55))
+                        } else if canPlay {
+                            Button(action: play) { Label("Jugar", systemImage: "play.fill") }
+                                .buttonStyle(PlayButtonStyle())
+                        }
+                    }
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(runningSince != nil ? Theme.cyan : .white.opacity(hovering ? 0.25 : 0.08),
+                                      lineWidth: runningSince != nil ? 2.5 : 1)
+                }
+                .shadow(color: .black.opacity(hovering ? 0.28 : 0.16), radius: hovering ? 12 : 6, y: hovering ? 6 : 3)
+                .scaleEffect(hovering ? 1.02 : 1)
+                .animation(.snappy(duration: 0.18), value: hovering)
+                .onTapGesture(count: 2) { if runningSince == nil && canPlay { play() } }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.game.name).font(.callout.weight(.semibold)).lineLimit(2)
+                status
+            }
+        }
+        .onHover { hovering = $0 }
+        .help(ReportText.compatibility(entry.compatibility, installed: true).text)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: runningSince == nil ? "Jugar" : "Detener") { runningSince == nil ? play() : stop() }
+    }
+
+    /// What the player needs to know first: a problem, the session, else the compatibility.
+    @ViewBuilder private var status: some View {
+        if let runningSince {
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                Text("Jugando · \(SessionPill.elapsed(since: runningSince, now: context.date))").foregroundStyle(Theme.cyan)
+            }
+            .font(.caption)
+        } else if entry.runtime == nil {
+            Text("Falta el runtime \(entry.record.runtimeVersion)").font(.caption).foregroundStyle(Theme.blocked)
+        } else if GameLauncher.primaryIsMissing(entry) {
+            Text("Falta el programa: revisa Configurar Jugar").font(.caption).foregroundStyle(Theme.blocked)
+        } else if entry.game.primary == nil && entry.game.customLaunch == nil {
+            Text("Sin programa para abrir").font(.caption).foregroundStyle(.secondary)
+        } else {
+            Text(statusText).font(.caption).foregroundStyle(statusColor)
+        }
+    }
+
+    private var statusText: String {
+        let compatibility = entry.compatibility
+        if compatibility.status == .untested && !compatibility.anticheat.isEmpty { return "Sin probar · anti-cheat" }
+        return ReportText.status(compatibility.status)
+    }
+
+    private var statusColor: Color {
+        let compatibility = entry.compatibility
+        return compatibility.status == .untested && !compatibility.anticheat.isEmpty ? Theme.playable : Theme.color(compatibility.status)
+    }
+}
+
+/// How long the game has been open, on its cover.
+private struct SessionPill: View {
+    let since: Date
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            HStack(spacing: 4) {
+                Circle().fill(Theme.cyan).frame(width: 6, height: 6)
+                Text(Self.elapsed(since: since, now: context.date)).monospacedDigit()
+            }
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .background(Capsule().fill(.black.opacity(0.5)))
+        }
+    }
+
+    /// "0:42": hours and minutes.
+    static func elapsed(since: Date, now: Date) -> String {
+        let minutes = max(0, Int(now.timeIntervalSince(since) / 60))
+        return "\(minutes / 60):" + String(format: "%02d", minutes % 60)
+    }
+}
+
+/// A cover made from the game's icon: its colors as a gradient, a streak of
+/// the rift's light and the icon large. Without an icon, the name's initials.
+struct GameCover: View {
+    let name: String
+    let icon: NSImage?
+    let palette: CoverPalette
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            ZStack {
+                LinearGradient(colors: [Color(palette.top), Color(palette.bottom)], startPoint: .top, endPoint: .bottom)
+                // The rift: a soft diagonal light across the cover.
+                LinearGradient(colors: [.clear, .white.opacity(0.16), .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: width * 0.5, height: geometry.size.height * 2)
+                    .rotationEffect(.degrees(24))
+                    .offset(x: width * 0.22, y: -width * 0.1)
+                    .blendMode(.plusLighter)
+                Group {
+                    if let icon {
+                        Image(nsImage: icon).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+                            .frame(width: width * 0.58)
+                            .shadow(color: .black.opacity(0.35), radius: width * 0.05, y: width * 0.02)
+                    } else {
+                        Text(initials).font(.system(size: width * 0.28, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.92))
+                    }
+                }
+                .offset(y: -width * 0.08)
+            }
+            .frame(width: width, height: geometry.size.height)
+        }
+        .aspectRatio(2 / 3, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityHidden(true)
+    }
+
+    private var initials: String {
+        String(name.split(separator: " ").prefix(2).compactMap(\.first)).uppercased()
+    }
+}
+
+/// The last tile: install another game.
+private struct AddCover: View {
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [7, 5]))
+                    .foregroundStyle(hovering ? Theme.violet : Color.secondary.opacity(0.4))
+                    .aspectRatio(2 / 3, contentMode: .fit)
+                    .overlay {
+                        Image(systemName: "plus").font(.system(size: 28, weight: .light))
+                            .foregroundStyle(hovering ? Theme.violet : .secondary)
+                    }
+                Text("Instalar un juego…").font(.callout).foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
