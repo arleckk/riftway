@@ -566,7 +566,9 @@ struct PlaySettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var mode: Mode
     @State private var scheme: String
-    @State private var link = ""
+    @State private var link: String
+    /// The link saved when the sheet opened.
+    private let savedLink: String
     @State private var path: String
     @State private var arguments: String
     @State private var problem: String?
@@ -586,6 +588,8 @@ struct PlaySettingsView: View {
             _mode = State(initialValue: .discovered)
             _scheme = State(initialValue: game.schemes.first ?? "")
         }
+        savedLink = (try? entry.secrets.read(account: game.secretAccount)) ?? ""
+        _link = State(initialValue: savedLink)
         if case .command(let path, let arguments)? = game.customLaunch {
             _path = State(initialValue: path)
             _arguments = State(initialValue: arguments ?? "")
@@ -617,8 +621,10 @@ struct PlaySettingsView: View {
                     }
                 }
                 Text(linkStatus).font(.callout)
-                SecureField("Opcional: pega un enlace \(scheme):…", text: $link)
-                Text("Jugar usa el último enlace que el sitio le mandó al juego; se recuerda solo cada vez que entras desde el sitio. Si todavía no hay uno, Jugar abre el sitio. El enlace incluye tu sesión: se guarda solo para tu usuario, fuera de la botella y fuera de los logs.")
+                TextField("\(scheme):…", text: $link, axis: .vertical)
+                    .lineLimit(2...5)
+                    .font(.system(.callout, design: .monospaced))
+                Text("Jugar usa el último enlace que el sitio le mandó al juego; se recuerda solo cada vez que entras desde el sitio, y aquí puedes pegar o corregir uno. Si lo dejas vacío, Jugar abre el sitio hasta el próximo. Se guarda solo para tu usuario, fuera de la botella, y en los logs sale censurado.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             case .command:
                 TextField("Programa (ruta de Windows)", text: $path)
@@ -665,8 +671,10 @@ struct PlaySettingsView: View {
             case .discovered:
                 try library.setCustomLaunch(entry, nil, link: nil)
             case .link:
-                let pasted = link.trimmingCharacters(in: .whitespacesAndNewlines)
-                try library.setCustomLaunch(entry, .link(scheme: scheme), link: pasted.isEmpty ? nil : pasted)
+                let edited = link.trimmingCharacters(in: .whitespacesAndNewlines)
+                if edited.isEmpty { try entry.secrets.delete(account: entry.game.secretAccount) }
+                try library.setCustomLaunch(entry, .link(scheme: scheme),
+                                            link: edited.isEmpty || edited == savedLink ? nil : edited)
             case .command:
                 try library.setCustomLaunch(entry, .command(path: path, arguments: arguments.isEmpty ? nil : arguments), link: nil)
             }
