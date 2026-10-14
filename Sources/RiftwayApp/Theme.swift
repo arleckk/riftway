@@ -91,3 +91,47 @@ extension NSImage {
         return CoverPalette.from(rgba: pixels, width: size, height: size)
     }
 }
+
+/// Where an installation is: analyze, bottle, installer, done. The step in
+/// progress is pink, finished ones violet, a failed one red.
+struct InstallSteps: View {
+    static let names = ["Analizar", "Botella", "Instalador", "Listo"]
+    /// The step in progress (0–3).
+    let current: Int
+    var done = false
+    var failed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                ForEach(Self.names.indices, id: \.self) { index in
+                    Capsule().fill(color(index)).frame(height: 4)
+                }
+            }
+            HStack(spacing: 6) {
+                ForEach(Self.names.indices, id: \.self) { index in
+                    HStack(spacing: 3) {
+                        if index < current || done { Image(systemName: "checkmark").font(.caption2.weight(.bold)) }
+                        if failed && index == current { Image(systemName: "xmark").font(.caption2.weight(.bold)) }
+                        Text(Self.names[index])
+                    }
+                    .font(.caption.weight(index == current && !done ? .semibold : .regular))
+                    .foregroundStyle(index <= current || done ? .primary : .secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .animation(.snappy, value: current)
+        .animation(.snappy, value: done)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(done ? "Instalación terminada"
+                            : "Paso \(current + 1) de \(Self.names.count): \(Self.names[current])\(failed ? ", falló" : "")")
+    }
+
+    private func color(_ index: Int) -> Color {
+        if failed && index == current { return Theme.blocked }
+        if index < current || done { return Theme.violet }
+        if index == current { return Theme.pink }
+        return Color.secondary.opacity(0.2)
+    }
+}

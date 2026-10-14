@@ -16,14 +16,15 @@ struct LibraryView: View {
     @State private var isTargeted = false
     @State private var item: SidebarItem? = .library
     @State private var search = ""
-    @State private var controllers = ControllerStatus()
+    let controllers: ControllerStatus
     /// The game page open over the current section, if any.
     @State private var path: [String] = []
 
-    init(model: AppModel, library: LibraryModel, updates: UpdateModel, item: SidebarItem = .library) {
+    init(model: AppModel, library: LibraryModel, updates: UpdateModel, controllers: ControllerStatus, item: SidebarItem = .library) {
         self.model = model
         self.library = library
         self.updates = updates
+        self.controllers = controllers
         _item = State(initialValue: item)
     }
 
@@ -383,6 +384,9 @@ struct AnalysisView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if file.report == nil || isInstaller || isPortable {
+                InstallSteps(current: 0).padding(.horizontal, 20).padding(.top, 18)
+            }
             if let report = file.report {
                 ReportContent(report: report)
                 if isInstaller || isPortable {
@@ -437,10 +441,13 @@ struct InstallView: View {
     @Bindable var job: InstallJob
     let library: LibraryModel
     @State private var confirmStop = false
+    /// The last step that ran, for a stop or a failure.
+    @State private var lastStep = 1
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(title).font(.title3.weight(.semibold))
+            InstallSteps(current: step.index, done: step.done, failed: step.failed)
             switch job.phase {
             case .running(let stage):
                 running(stage)
@@ -461,6 +468,26 @@ struct InstallView: View {
         .padding(22)
         .frame(width: 560)
         .interactiveDismissDisabled()
+        .onChange(of: job.phase, initial: true) {
+            if case .running(let stage) = job.phase { lastStep = Self.step(stage) }
+        }
+    }
+
+    private static func step(_ stage: Installation.Stage) -> Int {
+        switch stage {
+        case .creatingBottle, .copyingInstaller: 1
+        case .runningInstaller: 2
+        case .discovering: 3
+        }
+    }
+
+    private var step: (index: Int, done: Bool, failed: Bool) {
+        switch job.phase {
+        case .running(let stage): (Self.step(stage), false, false)
+        case .stopping: (lastStep, false, false)
+        case .result: (3, true, false)
+        case .failed: (lastStep, false, true)
+        }
     }
 
     private var title: String {

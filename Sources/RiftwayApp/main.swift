@@ -9,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
     let library = LibraryModel()
     let updates = UpdateModel()
+    let controllers = ControllerStatus()
+    private var playingMenu: PlayingMenu?
     private var window: NSWindow?
     private var settingsWindow: NSWindow?
     /// Files that arrive before the window exists (a cold launch from Finder).
@@ -20,11 +22,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        #if DEBUG
-        if let index = CommandLine.arguments.firstIndex(of: "--snapshot"), index + 1 < CommandLine.arguments.count {
-            return snapshot(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
-        }
-        #endif
         let size = NSSize(width: 1040, height: 680), minimum = NSSize(width: 760, height: 480)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -32,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.title = "Riftway"
         window.toolbarStyle = .unified
         window.contentMinSize = minimum
-        let host = NSHostingController(rootView: LibraryView(model: model, library: library, updates: updates)
+        let host = NSHostingController(rootView: LibraryView(model: model, library: library, updates: updates, controllers: controllers)
             .frame(minWidth: minimum.width, minHeight: minimum.height))
         // The window keeps its own size; the library's grid has no ideal width
         // and would shrink it to a sliver.
@@ -55,54 +52,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !early.isEmpty { model.open(early); early = [] }
         library.rebuildBridgesAfterUpdate()
         updates.checkIfDue()
+        controllers.start()
+        let menu = PlayingMenu(library: library, controllers: controllers) { [weak self] in self?.showMain() }
+        menu.start()
+        playingMenu = menu
     }
-
-    #if DEBUG
-    /// Draws the main window off screen, light and dark, into PNGs in `folder`
-    /// (a development check of the design; it never shows a window).
-    private func snapshot(to folder: URL) {
-        NSApp.setActivationPolicy(.prohibited)
-        Task { @MainActor in
-            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            for (page, item) in [("library", SidebarItem.library), ("playing", .playing), ("runtimes", .runtimes)] {
-                let view = NSHostingView(rootView: LibraryView(model: model, library: library, updates: updates, item: item))
-                view.frame = NSRect(x: 0, y: 0, width: 1040, height: 680)
-                let window = NSWindow(contentRect: view.frame, styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
-                window.contentView = view
-                for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
-                    window.appearance = NSAppearance(named: appearance)
-                    try? await Task.sleep(for: .seconds(1.5))
-                    view.layoutSubtreeIfNeeded()
-                    guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
-                    view.cacheDisplay(in: view.bounds, to: bitmap)
-                    try? bitmap.representation(using: .png, properties: [:])?.write(to: folder.appendingPathComponent("\(page)-\(name).png"))
-                }
-            }
-            library.reload()
-            if let id = library.entries.first?.id {
-                for tab in GamePage.Tab.allCases {
-                    let page = NavigationStack {
-                        GamePage(id: id, library: library, close: {}, tab: tab).background(Theme.canvas)
-                    }
-                    let view = NSHostingView(rootView: page)
-                    view.frame = NSRect(x: 0, y: 0, width: 840, height: 680)
-                    let window = NSWindow(contentRect: view.frame, styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
-                    window.contentView = view
-                    for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
-                        window.appearance = NSAppearance(named: appearance)
-                        try? await Task.sleep(for: .seconds(1))
-                        view.layoutSubtreeIfNeeded()
-                        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
-                        view.cacheDisplay(in: view.bounds, to: bitmap)
-                        try? bitmap.representation(using: .png, properties: [:])?
-                            .write(to: folder.appendingPathComponent("game-\(tab)-\(name).png"))
-                    }
-                }
-            }
-            NSApp.terminate(nil)
-        }
-    }
-    #endif
 
     func application(_ application: NSApplication, open urls: [URL]) {
         if launched { model.open(urls); showMain() } else { early.append(contentsOf: urls) }
@@ -199,11 +153,12 @@ func renderAnalysis(_ file: String, to output: String) -> Int32 {
     return snapshot(AnyView(AnalysisView(file: pending, remaining: 0, canInstall: true, close: {}, install: { _ in })), to: output)
 }
 
-/// Developer aid: `Riftway --render-library <out.png>` draws the library of
-/// $RIFTWAY_HOME, and `--render-install <bottle> <out.png>` the result screen
-/// for an installed bottle (its discovery against its baseline).
+/// Developer aid: `Riftway --render-library <out.png>` draws the main window on
+/// the library of $RIFTWAY_HOME (`--render-page <library|playing|runtimes> <out.png>`
+/// on another section), and `--render-install <bottle> <out.png>` the result
+/// screen for an installed bottle (its discovery against its baseline).
 @MainActor
-func renderLibrary(to output: String, installedBottle: String? = nil) -> Int32 {
+func renderLibrary(to output: String, installedBottle: String? = nil, page: SidebarItem = .library) -> Int32 {
     let library = LibraryModel()
     library.reload()
     let view: AnyView
@@ -219,22 +174,42 @@ func renderLibrary(to output: String, installedBottle: String? = nil) -> Int32 {
         job.phase = .result
         view = AnyView(InstallView(job: job, library: library))
     } else {
-        view = AnyView(LibraryView(model: AppModel(), library: library, updates: UpdateModel()).frame(width: 820, height: 560))
+        view = AnyView(LibraryView(model: AppModel(), library: library, updates: UpdateModel(), controllers: ControllerStatus(), item: page)
+            .frame(width: 1040, height: 680))
     }
     return snapshot(view, to: output)
 }
 
+/// Developer aid: `Riftway --render-game <game id> <summary|controls|compatibility|advanced> <out.png>`
+/// draws a game's page on one tab.
+@MainActor
+func renderGame(_ id: String, tab: String, to output: String) -> Int32 {
+    let library = LibraryModel()
+    library.reload()
+    guard library.entries.contains(where: { $0.id == id }) else { return 1 }
+    let tabs: [String: GamePage.Tab] = ["summary": .summary, "controls": .controls, "compatibility": .compatibility, "advanced": .advanced]
+    let page = NavigationStack { GamePage(id: id, library: library, close: {}, tab: tabs[tab] ?? .summary).background(Theme.canvas) }
+    return snapshot(AnyView(page.frame(width: 840, height: 680)), to: output)
+}
+
 /// Draws a view with its AppKit controls (ImageRenderer leaves them out) in an
 /// offscreen window, without screen-recording permission.
+/// `RIFTWAY_RENDER_APPEARANCE=dark` (or `light`) picks the appearance.
 @MainActor
 func snapshot(_ view: AnyView, to output: String) -> Int32 {
     let host = NSHostingView(rootView: view.background(Color(nsColor: .windowBackgroundColor)))
     let size = host.fittingSize
     host.frame = NSRect(origin: .zero, size: NSSize(width: max(size.width, 100), height: max(size.height, 100)))
     let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+    switch ProcessInfo.processInfo.environment["RIFTWAY_RENDER_APPEARANCE"] {
+    case "dark": window.appearance = NSAppearance(named: .darkAqua)
+    case "light": window.appearance = NSAppearance(named: .aqua)
+    default: break
+    }
     window.contentView = host
     host.layoutSubtreeIfNeeded()
-    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    // Long enough for the library's icons and covers to load.
+    RunLoop.main.run(until: Date().addingTimeInterval(1))
     guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return 1 }
     host.cacheDisplay(in: host.bounds, to: rep)
     guard let png = rep.representation(using: .png, properties: [:]), (try? png.write(to: URL(fileURLWithPath: output))) != nil else { return 1 }
@@ -244,6 +219,13 @@ func snapshot(_ view: AnyView, to output: String) -> Int32 {
 let arguments = CommandLine.arguments
 if let index = arguments.firstIndex(of: "--render-library"), arguments.count > index + 1 {
     exit(MainActor.assumeIsolated { renderLibrary(to: arguments[index + 1]) })
+}
+if let index = arguments.firstIndex(of: "--render-page"), arguments.count > index + 2 {
+    let pages: [String: SidebarItem] = ["library": .library, "playing": .playing, "runtimes": .runtimes]
+    exit(MainActor.assumeIsolated { renderLibrary(to: arguments[index + 2], page: pages[arguments[index + 1]] ?? .library) })
+}
+if let index = arguments.firstIndex(of: "--render-game"), arguments.count > index + 3 {
+    exit(MainActor.assumeIsolated { renderGame(arguments[index + 1], tab: arguments[index + 2], to: arguments[index + 3]) })
 }
 if let index = arguments.firstIndex(of: "--render-play-settings"), arguments.count > index + 2 {
     exit(MainActor.assumeIsolated {
