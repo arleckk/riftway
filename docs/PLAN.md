@@ -58,7 +58,8 @@ declarativos por juego**.
 - Macs Intel.
 - Evasión de anti-cheats, DRM o verificación de plataforma (ver la línea roja en
   [PRD-07](prd/PRD-07-compatibilidad-online.md)).
-- Tienda de juegos y descarga de juegos por parte de Riftway.
+- Tienda de juegos y descarga de juegos por parte de Riftway. (Riftway sí descarga el
+  instalador de Windows de los launchers comunes, como Steam: [PRD-01](prd/PRD-01-instalar-con-doble-clic.md) R1.6.)
 - Juegos de 32 bits que requieran WoW64 antiguo (se evaluará).
 - Distribución por la Mac App Store (el sandbox es incompatible con Wine).
 

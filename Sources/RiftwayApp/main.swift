@@ -90,6 +90,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.chooseFiles()
     }
 
+    @objc func showLaunchers(_ sender: Any?) {
+        showMain()
+        model.showsLaunchers = true
+    }
+
     @objc func chooseRuntime(_ sender: Any?) {
         showMain()
         library.chooseRuntime()
@@ -141,6 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fileItem = NSMenuItem()
         let file = NSMenu(title: "Archivo")
         file.addItem(withTitle: "Abrir instalador…", action: #selector(openDocument(_:)), keyEquivalent: "o")
+        file.addItem(withTitle: "Instalar un launcher…", action: #selector(showLaunchers(_:)), keyEquivalent: "")
         file.addItem(withTitle: "Instalar runtime…", action: #selector(chooseRuntime(_:)), keyEquivalent: "")
         file.addItem(withTitle: "Cerrar ventana", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         fileItem.submenu = file
@@ -274,6 +280,9 @@ if let index = arguments.firstIndex(of: "--render-controller"), arguments.count 
         guard let entry = library.entries.first(where: { $0.id == arguments[index + 1] }) else { return 1 }
         return snapshot(AnyView(ControllerEditorView(entry: entry, library: library)), to: arguments[index + 2])
     })
+}
+if let index = arguments.firstIndex(of: "--render-launchers"), arguments.count > index + 1 {
+    exit(MainActor.assumeIsolated { snapshot(AnyView(LaunchersView(model: AppModel())), to: arguments[index + 1]) })
 }
 if let index = arguments.firstIndex(of: "--render-settings"), arguments.count > index + 1 {
     exit(MainActor.assumeIsolated { snapshot(AnyView(SettingsView(updates: UpdateModel(), library: LibraryModel())), to: arguments[index + 1]) })

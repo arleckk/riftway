@@ -88,6 +88,9 @@ struct LibraryView: View {
         .sheet(isPresented: $updates.showsSheet) {
             UpdateView(updates: updates, library: library)
         }
+        .sheet(isPresented: $model.showsLaunchers) {
+            LaunchersView(model: model)
+        }
         .sheet(isPresented: $model.showsAssociationOffer) {
             AssociationOfferView { model.associationOfferAnswered(accept: $0) }
         }
@@ -259,7 +262,7 @@ private struct LibraryPage: View {
                                action: ("Elegir runtime…", { library.chooseRuntime() }))
                 }
                 if library.entries.isEmpty {
-                    EmptyLibrary(isTargeted: isTargeted) { model.chooseFiles() }
+                    EmptyLibrary(isTargeted: isTargeted, choose: { model.chooseFiles() }, launchers: { model.showsLaunchers = true })
                 } else if shown.isEmpty {
                     ContentUnavailableView.search(text: search).frame(maxWidth: .infinity, minHeight: 300)
                 } else {
@@ -278,8 +281,15 @@ private struct LibraryPage: View {
         .searchable(text: $search, placement: .toolbar, prompt: "Buscar")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button { model.chooseFiles() } label: { Label("Instalar juego", systemImage: "plus") }
-                    .help("Instala un juego desde su instalador de Windows (⌘O)")
+                Menu {
+                    Button("Elegir instalador…") { model.chooseFiles() }
+                    Button("Instalar un launcher…") { model.showsLaunchers = true }
+                } label: {
+                    Label("Instalar juego", systemImage: "plus")
+                } primaryAction: {
+                    model.chooseFiles()
+                }
+                .help("Instala un juego desde su instalador de Windows (⌘O), o un launcher como Steam")
             }
         }
     }
@@ -401,6 +411,7 @@ private struct PageNotice: View {
 private struct EmptyLibrary: View {
     let isTargeted: Bool
     let choose: () -> Void
+    let launchers: () -> Void
 
     var body: some View {
         VStack(spacing: 18) {
@@ -415,10 +426,14 @@ private struct EmptyLibrary: View {
                 Text("Arrastra aquí un instalador de Windows").font(.title3.weight(.semibold))
                 Text("Archivos .exe o .msi. También puedes darles doble clic en Finder.").foregroundStyle(.secondary)
             }
-            Button("Elegir archivo…", action: choose)
-                .keyboardShortcut("o")
-                .controlSize(.large)
-                .buttonStyle(.borderedProminent)
+            HStack(spacing: 10) {
+                Button("Elegir archivo…", action: choose)
+                    .keyboardShortcut("o")
+                    .buttonStyle(.borderedProminent)
+                Button("Instalar un launcher…", action: launchers)
+                    .help("Steam, Epic Games, GOG Galaxy… en su versión de Windows")
+            }
+            .controlSize(.large)
         }
         .frame(maxWidth: .infinity, minHeight: 380)
         .background {

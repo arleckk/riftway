@@ -30,6 +30,55 @@ final class AppModel {
     var current: PendingFile? { queue.first }
     var remaining: Int { max(0, queue.count - 1) }
 
+    // MARK: Launchers
+
+    /// The sheet of game launchers Riftway downloads (Steam, Epic…).
+    var showsLaunchers = false
+    /// Each launcher downloading now, and how far (0…1).
+    private(set) var launcherProgress: [String: Double] = [:]
+    /// Why the last download was refused or failed, by launcher.
+    private(set) var launcherProblem: [String: String] = [:]
+    private var launcherTasks: [String: Task<Void, Never>] = [:]
+
+    /// Downloads the launcher's Windows installer and, once its publisher's
+    /// signature checks out, shows it in the analysis sheet like any other.
+    func getLauncher(_ launcher: StoreLauncher) {
+        guard launcherTasks[launcher.id] == nil else { return }
+        launcherProblem[launcher.id] = nil
+        launcherProgress[launcher.id] = 0
+        launcherTasks[launcher.id] = Task {
+            do {
+                let file = try await StoreLauncherDownload.run(launcher) { [weak self] fraction in
+                    Task { @MainActor in
+                        if self?.launcherProgress[launcher.id] != nil { self?.launcherProgress[launcher.id] = fraction }
+                    }
+                }
+                log.write("app: downloaded \(launcher.name)'s installer")
+                finishLauncher(launcher.id)
+                showsLaunchers = false
+                // After the sheet closes: one sheet at a time.
+                try await Task.sleep(for: .milliseconds(350))
+                open([file])
+            } catch is CancellationError {
+                finishLauncher(launcher.id)
+            } catch let error as URLError where error.code == .cancelled {
+                finishLauncher(launcher.id)
+            } catch {
+                finishLauncher(launcher.id)
+                launcherProblem[launcher.id] = (error as? StoreLauncherDownload.Failure)?.description ?? error.localizedDescription
+            }
+        }
+    }
+
+    func cancelLauncher(_ launcher: StoreLauncher) {
+        launcherTasks[launcher.id]?.cancel()
+    }
+
+    private func finishLauncher(_ id: String) {
+        launcherTasks[id] = nil
+        launcherProgress[id] = nil
+    }
+
     func start() {
         if !UserDefaults.standard.bool(forKey: Self.associationOfferedKey), !FileAssociation.isRiftwayDefaultForAll {
             offersAssociation = true

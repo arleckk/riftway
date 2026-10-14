@@ -38,6 +38,11 @@ Library (~/Library/Application Support/Riftway, or $RIFTWAY_HOME):
       Install an assembled runtime (work/runtime/artifacts/<version>) for new bottles.
   riftway runtimes
       List installed runtimes, newest first.
+  riftway launchers
+      The game launchers Riftway can download (their sites give a Mac the macOS app).
+  riftway launcher-download <launcher>
+      Download a launcher's Windows installer from its publisher into <home>/Installers,
+      keep it only if the publisher signed it, and print its path (then: riftway install).
   riftway install <installer> [--name NAME] [--installer-arg A]... [--no-bridge] [--default]
       New bottle, run the installer (its wizard shows), discover what it left,
       add the game to the library and build its bridge app.
@@ -711,6 +716,21 @@ do {
         let runtimes = RiftwayHome.standard.installedRuntimes()
         if runtimes.isEmpty { print("No runtimes in \(RiftwayHome.standard.runtimes.path)") }
         for r in runtimes { print("\(r.version)  \(r.runtime.root)") }
+    case "launchers":
+        for launcher in StoreLaunchers.all {
+            let check = launcher.signer.map { "signed by \($0)" } ?? "MSI, publisher's HTTPS only"
+            print("\(launcher.id.padding(toLength: 10, withPad: " ", startingAt: 0)) \(launcher.name) (\(launcher.publisher); \(check)"
+                  + (launcher.tested ? "; tested" : "; untested") + ")")
+        }
+    case "launcher-download":
+        guard let id = options.positional.first, let launcher = StoreLaunchers.launcher(id) else {
+            throw CLIError("Pass one of: " + StoreLaunchers.all.map(\.id).joined(separator: ", "))
+        }
+        let shown = ShownPercent()
+        let file = try await StoreLauncherDownload.run(launcher) { fraction in
+            if let percent = shown.next(fraction) { FileHandle.standardError.write(Data("\(percent) %\n".utf8)) }
+        }
+        print(file.path)
     case "install":
         try await install(options)
     case "running":
@@ -896,4 +916,19 @@ do {
 } catch {
     FileHandle.standardError.write(Data("riftway: \(error)\n".utf8))
     exit(1)
+}
+
+/// Download progress in steps of 10 %, each once.
+final class ShownPercent: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last = -1
+
+    func next(_ fraction: Double) -> Int? {
+        let percent = Int(fraction * 10) * 10
+        return lock.withLock {
+            guard percent > last else { return nil }
+            last = percent
+            return percent
+        }
+    }
 }

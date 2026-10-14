@@ -50,6 +50,7 @@ Launchpad, con su ícono, y sus links web funcionan.
 | R1.3 | En el primer arranque, una pantalla ofrece "Abrir archivos de Windows con Riftway". Si el usuario acepta: `NSWorkspace.setDefaultApplication(at:toOpen:)` para ambos tipos (macOS pide confirmación). Se puede cambiar en Ajustes › General. |
 | R1.4 | Riftway nunca se vuelve predeterminada sin una acción explícita del usuario. |
 | R1.5 | Si otra app (CrossOver, Whisky) es la predeterminada, Ajustes lo muestra y ofrece cambiarlo; no se cambia en silencio. |
+| R1.6 | Launchers comunes (Steam, Epic Games, GOG Galaxy, EA app, Ubisoft Connect, Battle.net): en una Mac sus sitios dan la app de macOS, así que "Instalar un launcher…" (barra de herramientas, biblioteca vacía, menú Archivo) descarga el instalador de Windows del enlace oficial del fabricante a `<home>/Installers/<launcher>/`. Se usa solo si la descarga termina en un dominio del fabricante por HTTPS y, si es `.exe`, la firma Authenticode es válida y es del fabricante (el MSI de Epic se acepta por el dominio mientras no se verifiquen firmas de MSI). Luego sigue el flujo normal: hoja de análisis e instalación. CLI: `riftway launchers`, `riftway launcher-download <launcher>`. |
 
 ### 2. Análisis del archivo (M1, solo lectura, sin ejecutar nada)
 
