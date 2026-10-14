@@ -71,6 +71,10 @@ final class UpdateModel {
                 } else {
                     phase = .upToDate
                 }
+            } catch Updater.Failure.download(_, status: 404) {
+                // The feed's address has no release yet.
+                log.write("update: no release published yet")
+                phase = .failed("Todavía no hay versiones publicadas.")
             } catch {
                 log.write("update: check failed: \(error)")
                 phase = .failed("\(error)")

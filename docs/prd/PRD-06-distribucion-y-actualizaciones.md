@@ -90,7 +90,13 @@ ensamblado, perfiles), con el intercambio esperando al proceso de la app; un fee
 byte cambiado se rechaza.
 
 Pendiente:
-- Decidir dónde se publican las releases y poner esa dirección en `RiftwayFeedURL`.
+- La primera release (0.1.0) en GitHub Releases. Decidido: el repositorio público
+  [arleckk/riftway](https://github.com/arleckk/riftway), y `RiftwayFeedURL` apunta a
+  `releases/latest/download/feed.json`, así que la app lee el feed de la release más
+  nueva publicada y descarga sus archivos de esa misma release (los borradores y
+  pre-releases no cuentan como "latest"). `scripts/publish-release.sh` sube
+  `build/release/<versión>` como borrador `v<versión>`; publicarlo es un paso aparte.
+  Mientras no haya release, GitHub responde 404 y la app dice que todavía no hay versiones.
 - Publicar el código fuente y los parches de cada runtime distribuido (R10, LGPL).
 - R1 y R4 (Developer ID, notarización, moverse a Aplicaciones) cuando haya cuenta.
 - Actualizaciones delta del runtime (hoy se descarga completo).

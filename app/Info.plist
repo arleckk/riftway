@@ -23,10 +23,11 @@
 	<!-- The runtime's minimum (runtime.json); Riftway is useless without it. -->
 	<key>LSMinimumSystemVersion</key>
 	<string>26.0</string>
-	<!-- The signed release feed (PRD-06). Empty: no update checks, as in builds
-	     from the source; scripts/release.sh builds read it from here. -->
+	<!-- The signed release feed (PRD-06): the newest GitHub release's assets,
+	     published by scripts/publish-release.sh. The files it lists are
+	     relative to it, so they come from the same release. -->
 	<key>RiftwayFeedURL</key>
-	<string></string>
+	<string>https://github.com/arleckk/riftway/releases/latest/download/feed.json</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.games</string>
 	<key>NSHighResolutionCapable</key>

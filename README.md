@@ -9,11 +9,13 @@
 ```sh
 swift run riftway-release keygen      # una vez: llave de firma en ~/.riftway (nunca en el repo)
 scripts/release.sh --runtime work/runtime/artifacts/rw-0.1.2-spike.tar.gz --notes "…"
+scripts/publish-release.sh            # sube build/release/<versión> como borrador en GitHub Releases
+gh release edit v<versión> --draft=false   # publicarla: la app la ve como "latest"
 ```
 
 Deja en `build/release/<versión>/` el DMG, el zip que descarga el actualizador y
-`feed.json` con su firma Ed25519. La app solo busca actualizaciones si `app/Info.plist`
-trae `RiftwayFeedURL` (o `RIFTWAY_FEED_URL` al desarrollar); verifica la firma del feed,
+`feed.json` con su firma Ed25519. La app busca actualizaciones en `RiftwayFeedURL` de
+`app/Info.plist` (la release más nueva de GitHub; `RIFTWAY_FEED_URL` al desarrollar); verifica la firma del feed,
 el tamaño y el SHA-256 de cada descarga y la firma de código de la app nueva antes de
 cambiar nada. Detalles en [PRD-06](docs/prd/PRD-06-distribucion-y-actualizaciones.md#estado-de-m5).
 
