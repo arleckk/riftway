@@ -13,10 +13,8 @@ public enum GameLauncher {
         case runtimeMissing(String)
         case noProgram
         case badWebAddress(String)
-        case linkMissing
         public var description: String {
             switch self {
-            case .linkMissing: "The launch link is not in the Keychain anymore; set it again"
             case .runtimeMissing(let version): "The runtime \(version) this game uses is not installed"
             case .noProgram: "This game has no program to start"
             case .badWebAddress(let url): "Not a web address: \(url)"
@@ -36,9 +34,12 @@ public enum GameLauncher {
             let log = entry.record.options.diagnostics ? sessionLog(root: entry.root) : nil
             switch custom {
             case .link(let scheme):
-                guard let link = try SecretStore.read(account: entry.game.keychainAccount) else { throw Failure.linkMissing }
-                let plan = try URLBridge(bottle: setup.bottle, schemes: [scheme]).plan(forURL: link)
-                return .wine(plan, log: log)
+                // No link yet (the bridge remembers the first one the site
+                // sends): Play opens what the installer left, the site.
+                if let link = try entry.secrets.read(account: entry.game.secretAccount) {
+                    let plan = try URLBridge(bottle: setup.bottle, schemes: [scheme]).plan(forURL: link)
+                    return .wine(plan, log: log)
+                }
             case .command(let path, let arguments):
                 let plan = try setup.bottle.launchPlan(windowsArguments: [path] + (arguments.map(WindowsCommandLine.split) ?? []))
                 return .wine(plan, log: log)
@@ -85,17 +86,19 @@ public enum GameLauncher {
     }
 
     /// Sets what Play starts. A link is validated against the game's schemes
-    /// and stored in the Keychain; nil goes back to the discovered program.
+    /// and stored in the secret store; nil goes back to the discovered program.
     public static func setCustomLaunch(_ custom: Game.CustomLaunch?, link: String? = nil, for entry: LibraryEntry,
                                        library: Library) throws -> Game {
         var game = entry.game
         switch custom {
         case .link(let scheme)?:
-            guard let link else { throw Failure.linkMissing }
-            do { _ = try IncomingURL.validate(link, schemes: [scheme]) } catch { throw BridgeError.invalidURL(error) }
-            try SecretStore.save(link, account: game.keychainAccount)
+            // Without a pasted link, the bridge remembers the next one the site sends.
+            if let link {
+                do { _ = try IncomingURL.validate(link, schemes: [scheme]) } catch { throw BridgeError.invalidURL(error) }
+                try entry.secrets.save(link, account: game.secretAccount)
+            }
         case .command?, nil:
-            try SecretStore.delete(account: game.keychainAccount)
+            try entry.secrets.delete(account: game.secretAccount)
         }
         game.customLaunch = custom
         try library.save(game, in: entry.root)
@@ -112,10 +115,14 @@ public enum GameLauncher {
         case (.command(let path, let arguments)?, _), (_, .executable(let path, let arguments)?):
             config.program = [path] + (arguments.map(WindowsCommandLine.split) ?? [])
         case (_, .web(let url)?):
-            // A launch link stays in the app's Keychain; the bridge opens the site.
+            // A double-click opens the site; the site's Start sends the link.
             config.webPage = url
         case (_, nil):
             break
+        }
+        if case .link? = entry.game.customLaunch {
+            config.rememberLinkAccount = entry.game.secretAccount
+            config.secretsDirectory = entry.secrets.directory.path
         }
         try FileManager.default.createDirectory(at: home.bridges, withIntermediateDirectories: true)
         var icon: URL?

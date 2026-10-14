@@ -226,15 +226,21 @@ let installedSystemReg = #"""
 }
 
 @Suite struct CustomLaunchTests {
-    @Test func keychainRoundTrip() throws {
-        let account = "test:" + UUID().uuidString
-        defer { try? SecretStore.delete(account: account) }
-        #expect(try SecretStore.read(account: account) == nil)
-        try SecretStore.save("dsropen:a;b;c", account: account)
-        try SecretStore.save("dsropen:d;e;f", account: account)  // replaces
-        #expect(try SecretStore.read(account: account) == "dsropen:d;e;f")
-        try SecretStore.delete(account: account)
-        #expect(try SecretStore.read(account: account) == nil)
+    @Test func secretsArePrivateFiles() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("riftway-secrets-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SecretStore(directory: directory)
+        #expect(try store.read(account: "game:g") == nil)
+        try store.save("dsropen:a;b;c", account: "game:g")
+        try store.save("dsropen:d;e;f", account: "game:g")  // replaces
+        #expect(try store.read(account: "game:g") == "dsropen:d;e;f")
+        let file = store.file(for: "game:g")
+        #expect(file.lastPathComponent == "game-g.link")
+        #expect((try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int) == 0o600)
+        #expect((try FileManager.default.attributesOfItem(atPath: directory.path)[.posixPermissions] as? Int) == 0o700)
+        #expect(store.file(for: "../../x").lastPathComponent == "------x.link")
+        try store.delete(account: "game:g")
+        #expect(try store.read(account: "game:g") == nil)
     }
 
     @Test func linksMustUseTheGamesSchemeAndCommandsRun() throws {
@@ -259,6 +265,21 @@ let installedSystemReg = #"""
             _ = try GameLauncher.setCustomLaunch(.link(scheme: "gameopen"), link: "otherscheme:token", for: entry, library: library)
         }
         #expect(library.entry(at: root)?.game.customLaunch == nil)
+
+        // A link mode with nothing remembered yet falls back to the primary
+        // program (none here); a remembered link goes to the bottle as is.
+        let launcher = root.appendingPathComponent("prefix/drive_c/Games/G/Launcher.exe")
+        try FileManager.default.createDirectory(at: launcher.deletingLastPathComponent(), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: launcher.path, contents: Data())
+        try Data(("WINE REGISTRY Version 2\n\n" + installedSystemReg.replacingOccurrences(of: "\\\\Games\\\\Game\\\\Launcher.exe",
+                                                                                         with: "\\\\Games\\\\G\\\\Launcher.exe")).utf8)
+            .write(to: root.appendingPathComponent("prefix/system.reg"))
+        _ = try GameLauncher.setCustomLaunch(.link(scheme: "gameopen"), for: entry, library: library)
+        #expect(throws: GameLauncher.Failure.noProgram) { try GameLauncher.action(for: library.entry(at: root)!) }
+        try library.entry(at: root)!.secrets.save("gameopen:token;me@example.com", account: "game:g")
+        guard case .wine(let linkPlan, _) = try GameLauncher.action(for: library.entry(at: root)!) else { Issue.record("expected wine"); return }
+        #expect(linkPlan.arguments.last == "gameopen:token;me@example.com")
+        #expect(FileManager.default.fileExists(atPath: home.root.appendingPathComponent("Secrets/game-g.link").path))
 
         let game = try GameLauncher.setCustomLaunch(.command(path: #"C:\Games\G\G.exe"#, arguments: "-dx11 \"two words\""),
                                                     for: entry, library: library)

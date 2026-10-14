@@ -31,7 +31,7 @@ final class ShimDelegate: NSObject, NSApplicationDelegate {
                 NSWorkspace.shared.open(page)
                 return quitSoon()
             }
-            launch(secret: nil) { () throws(BridgeError) in try config.bridge.planForProgram() }
+            _ = launch(secret: nil) { () throws(BridgeError) in try config.bridge.planForProgram() }
         }
     }
 
@@ -42,11 +42,22 @@ final class ShimDelegate: NSObject, NSApplicationDelegate {
             return quitSoon()
         }
         log.write("shim \(config.bundleIdentifier): received \(IncomingURL.redacted(url))")
-        launch(secret: url) { () throws(BridgeError) in try config.bridge.plan(forURL: url) }
+        let launched = launch(secret: url) { () throws(BridgeError) in try config.bridge.plan(forURL: url) }
+        // The game's Play button reuses the newest link (it carries a session
+        // that expires); only a link the bottle accepted is kept.
+        if launched, !config.dryRun, let account = config.rememberLinkAccount, let directory = config.secretsDirectory {
+            do {
+                try SecretStore(directory: URL(fileURLWithPath: directory, isDirectory: true)).save(url, account: account)
+                log.write("shim: remembered \(IncomingURL.redacted(url)) for Play")
+            } catch {
+                log.write("shim: could not remember the link: \(error)")
+            }
+        }
     }
 
-    private func launch(secret: String?, _ makePlan: () throws(BridgeError) -> LaunchPlan) {
-        guard let config else { return quitSoon() }
+    @discardableResult
+    private func launch(secret: String?, _ makePlan: () throws(BridgeError) -> LaunchPlan) -> Bool {
+        guard let config else { quitSoon(); return false }
         do {
             var plan = try makePlan()
             if config.wineLog {
@@ -64,8 +75,11 @@ final class ShimDelegate: NSObject, NSApplicationDelegate {
         } catch {
             log.write("shim: \(error)")
             alert(error.description)
+            quitSoon()
+            return false
         }
         quitSoon()
+        return true
     }
 
     private func alert(_ message: String) {

@@ -52,8 +52,9 @@ Library (~/Library/Application Support/Riftway, or $RIFTWAY_HOME):
       re-point R:, record a baseline from a fresh bottle on the same runtime,
       discover its game and build its bridge.
   riftway play-setup <game> (--link [--scheme S] | --command PATH [--args "ARGS"] | --reset)
-      What Play starts. --link reads a launch link (dsropen:…) from standard input,
-      never from the command line, and keeps it in the Keychain.
+      What Play starts. --link: the last link the game's site sent to the bridge
+      (remembered automatically), or one pasted on standard input (never as an
+      argument); links are kept in <home>/Secrets, outside every bottle.
   riftway diagnostics <game> on|off
       Diagnostic mode: Wine's errors and DLL loads in the bottle's logs/session-*.log.
   riftway program-dll <game> <program.exe> <dll> <mode|off|remove>
@@ -434,11 +435,14 @@ func playSetup(_ options: Options) throws {
         guard let scheme, entry.game.schemes.contains(scheme) else {
             throw CLIError("The game handles no such scheme (its schemes: \(entry.game.schemes.joined(separator: ", ")))")
         }
-        guard let link = readSecretLine(prompt: "Paste the \(scheme): link and press Return: "), !link.isEmpty else {
-            throw CLIError("No link given")
-        }
+        let pasted = readSecretLine(prompt: "Paste a \(scheme): link and press Return (or just Return to wait for the site's): ")
+        let link = pasted?.isEmpty == false ? pasted : nil
         game = try GameLauncher.setCustomLaunch(.link(scheme: scheme), link: link, for: entry, library: library)
-        print("Play starts the saved \(scheme): link \(IncomingURL.redacted(link)) (kept in the Keychain)")
+        if let link {
+            print("Play starts the saved \(scheme): link \(IncomingURL.redacted(link))")
+        } else {
+            print("Play opens the site until it sends a \(scheme): link; the bridge remembers it from then on")
+        }
     } else if let path = options.one("--command") {
         game = try GameLauncher.setCustomLaunch(.command(path: path, arguments: options.one("--args")), for: entry, library: library)
         print("Play starts: \(path) \(options.one("--args") ?? "")")
@@ -572,7 +576,9 @@ do {
         for e in entries {
             print("\(e.game.name)  [\(e.id), runtime \(e.record.runtimeVersion)\(e.runtime == nil ? " MISSING" : "")\(e.record.options.diagnostics ? ", diagnostics" : "")]")
             switch e.game.customLaunch {
-            case .link(let scheme)?: print("  play:    saved \(scheme): link (Keychain)")
+            case .link(let scheme)?:
+                let saved = e.secrets.savedDate(account: e.game.secretAccount)
+                print("  play:    last \(scheme): link" + (saved.map { " (saved \($0))" } ?? " (none yet: opens the site)"))
             case .command(let path, let arguments)?: print("  play:    \(path) \(arguments ?? "") (custom)")
             case nil: print("  play:    \(target(e.game.primary))")
             }

@@ -28,14 +28,14 @@ public struct Game: Codable, Sendable, Equatable, Identifiable {
     public enum CustomLaunch: Codable, Sendable, Equatable {
         /// A link to one of the game's schemes (`dsropen:token;email;hash`),
         /// handed to the bottle as the website would. The link itself is in the
-        /// Keychain (`SecretStore`, account `keychainAccount`), never in files.
+        /// secret store (`SecretStore`, account `secretAccount`), never here.
         case link(scheme: String)
         /// A program in the bottle with its own arguments.
         case command(path: String, arguments: String?)
     }
 
-    /// The Keychain account that holds this game's launch link.
-    public var keychainAccount: String { "game:" + id }
+    /// The secret store account that holds this game's launch link.
+    public var secretAccount: String { "game:" + id }
 
     public struct InstallerInfo: Codable, Sendable, Equatable {
         public var file: String
@@ -85,6 +85,11 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
     public var runtime: WineRuntime?
 
     public var id: String { game.id }
+
+    /// The Riftway home's secret store (`<home>/Secrets`; bottles are `<home>/Bottles/<id>`).
+    public var secrets: SecretStore {
+        SecretStore(directory: root.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Secrets", isDirectory: true))
+    }
 
     public var setup: BottleSetup? {
         runtime.map { BottleSetup(runtime: $0, root: root, options: record.options) }

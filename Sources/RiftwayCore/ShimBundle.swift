@@ -20,6 +20,10 @@ public struct ShimConfig: Codable, Sendable, Equatable {
     /// A web page a double-click opens in the Mac's browser instead (games
     /// started from their site, which then calls the bridge's scheme).
     public var webPage: String?
+    /// Where the bridge remembers the last link it received (`SecretStore`),
+    /// for a game whose Play button reuses it.
+    public var rememberLinkAccount: String?
+    public var secretsDirectory: String?
 
     public init(displayName: String, bottle: Bottle, schemes: [String], extraArguments: [String] = [],
                 environment: [String: String] = [:], dryRun: Bool = false) {
@@ -32,7 +36,7 @@ public struct ShimConfig: Codable, Sendable, Equatable {
         self.dryRun = dryRun
     }
 
-    enum CodingKeys: String, CodingKey { case displayName, bundleIdentifier, bottle, schemes, extraArguments, environment, dryRun, wineLog, program, webPage }
+    enum CodingKeys: String, CodingKey { case displayName, bundleIdentifier, bottle, schemes, extraArguments, environment, dryRun, wineLog, program, webPage, rememberLinkAccount, secretsDirectory }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -46,6 +50,8 @@ public struct ShimConfig: Codable, Sendable, Equatable {
         wineLog = try c.decodeIfPresent(Bool.self, forKey: .wineLog) ?? false
         program = try c.decodeIfPresent([String].self, forKey: .program)
         webPage = try c.decodeIfPresent(String.self, forKey: .webPage)
+        rememberLinkAccount = try c.decodeIfPresent(String.self, forKey: .rememberLinkAccount)
+        secretsDirectory = try c.decodeIfPresent(String.self, forKey: .secretsDirectory)
     }
 
     /// `webPage` when it is an http or https address.

@@ -556,7 +556,8 @@ struct SettingsView: View {
 }
 
 /// What Play starts: what the installer left, a launch link the player pastes
-/// (kept in the Keychain), or a program of the bottle with its own arguments.
+/// (remembered from the site or pasted; kept outside the bottle), or a program
+/// of the bottle with its own arguments.
 struct PlaySettingsView: View {
     enum Mode: Hashable { case discovered, link, command }
 
@@ -615,9 +616,9 @@ struct PlaySettingsView: View {
                         ForEach(entry.game.schemes, id: \.self) { Text("\($0):").tag($0) }
                     }
                 }
-                SecureField(entry.game.customLaunch == .link(scheme: scheme) ? "Pega un enlace nuevo para reemplazar el guardado"
-                                                                             : "\(scheme):…", text: $link)
-                Text("El enlace incluye tu sesión, así que se guarda en el Llavero de macOS y no en archivos ni logs. Si caduca, pega uno nuevo.")
+                Text(linkStatus).font(.callout)
+                SecureField("Opcional: pega un enlace \(scheme):…", text: $link)
+                Text("Jugar usa el último enlace que el sitio le mandó al juego; se recuerda solo cada vez que entras desde el sitio. Si todavía no hay uno, Jugar abre el sitio. El enlace incluye tu sesión: se guarda solo para tu usuario, fuera de la botella y fuera de los logs.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             case .command:
                 TextField("Programa (ruta de Windows)", text: $path)
@@ -644,11 +645,16 @@ struct PlaySettingsView: View {
         }
     }
 
+    private var linkStatus: String {
+        guard let date = entry.secrets.savedDate(account: entry.game.secretAccount) else {
+            return "Aún no hay enlace guardado: la próxima vez que des Start en el sitio, se recordará."
+        }
+        return "Enlace guardado " + date.formatted(.relative(presentation: .named)) + "."
+    }
+
     private var canSave: Bool {
         switch mode {
-        case .discovered: true
-        // An already saved link can stay as is.
-        case .link: !link.isEmpty || entry.game.customLaunch == .link(scheme: scheme)
+        case .discovered, .link: true
         case .command: path.lowercased().hasSuffix(".exe")
         }
     }
@@ -659,8 +665,8 @@ struct PlaySettingsView: View {
             case .discovered:
                 try library.setCustomLaunch(entry, nil, link: nil)
             case .link:
-                if link.isEmpty { break }  // keep the saved link
-                try library.setCustomLaunch(entry, .link(scheme: scheme), link: link.trimmingCharacters(in: .whitespacesAndNewlines))
+                let pasted = link.trimmingCharacters(in: .whitespacesAndNewlines)
+                try library.setCustomLaunch(entry, .link(scheme: scheme), link: pasted.isEmpty ? nil : pasted)
             case .command:
                 try library.setCustomLaunch(entry, .command(path: path, arguments: arguments.isEmpty ? nil : arguments), link: nil)
             }

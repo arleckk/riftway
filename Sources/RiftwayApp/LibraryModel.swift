@@ -222,7 +222,7 @@ final class LibraryModel {
         NSWorkspace.shared.open(logs)
     }
 
-    /// Sets what Play starts; `link` (with its token) goes to the Keychain.
+    /// Sets what Play starts; `link` (with its token) goes to the secret store.
     func setCustomLaunch(_ entry: LibraryEntry, _ custom: Game.CustomLaunch?, link: String?) throws {
         let game = try GameLauncher.setCustomLaunch(custom, link: link, for: entry, library: library)
         if game.bridge != nil, let updated = library.entry(at: entry.root) {
