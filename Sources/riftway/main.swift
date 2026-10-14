@@ -46,6 +46,11 @@ Library (~/Library/Application Support/Riftway, or $RIFTWAY_HOME):
       Look for programs and URL protocols a launcher installed since.
   riftway bridge <game> [--default]
       Rebuild the game's bridge app (schemes and Play).
+  riftway adopt <bottle folder> --baseline-from <fresh bottle> [--name NAME] [--runtime-version V]
+                [--app-dpi DPI:A.exe;B.exe] [--diagnostics] [--program-dll EXE:DLL=MODE]... [--default]
+      Move an existing Riftway bottle into the library (same disk: a rename),
+      re-point R:, record a baseline from a fresh bottle on the same runtime,
+      discover its game and build its bridge.
   riftway diagnostics <game> on|off
       Diagnostic mode: Wine's errors and DLL loads in the bottle's logs/session-*.log.
   riftway program-dll <game> <program.exe> <dll> <mode|off|remove>
@@ -59,7 +64,7 @@ struct Options {
 
     static let valued: Set<String> = ["--bottle", "--prefix", "--wine", "--name", "--scheme", "--arg", "--icon", "--output",
                                       "--runtime", "--at", "--timeout", "--debug", "--app-dpi", "--mouselook", "--env",
-                                      "--baseline-from", "--installer-arg"]
+                                      "--baseline-from", "--installer-arg", "--runtime-version", "--program-dll"]
     /// Everything after `--`, passed through untouched.
     var passthrough: [String] = []
 
@@ -332,6 +337,68 @@ func play(_ options: Options) throws {
     }
 }
 
+func adopt(_ options: Options) async throws {
+    guard let path = options.positional.first, let fresh = options.one("--baseline-from") else {
+        throw CLIError("Pass the bottle folder and --baseline-from <a fresh bottle on the same runtime>")
+    }
+    let fm = FileManager.default
+    let source = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+    let library = Library()
+    guard fm.fileExists(atPath: source.appendingPathComponent("prefix/system.reg").path),
+          let recordData = try? Data(contentsOf: source.appendingPathComponent("bottle.json")) else {
+        throw CLIError("\(source.path) is not a Riftway bottle (prefix/system.reg and bottle.json)")
+    }
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    var record = try decoder.decode(BottleRecord.self, from: recordData)
+    let version = options.one("--runtime-version") ?? record.runtimeVersion
+    guard let runtime = library.home.runtime(version: version) else {
+        throw CLIError("Runtime \(version) is not installed (riftway runtime-install …)")
+    }
+    record.runtimeVersion = version
+    if let spec = options.one("--app-dpi") {
+        let parts = spec.split(separator: ":", maxSplits: 1)
+        guard parts.count == 2, let dpi = Int(parts[0]) else { throw CLIError("--app-dpi takes DPI:A.exe;B.exe") }
+        record.options.appDPI = (dpi, parts[1].split(separator: ";").map(String.init))
+    }
+    if options.flags.contains("--diagnostics") { record.options.diagnostics = true }
+    for spec in options.many("--program-dll") {
+        // EXE:DLL=MODE, MODE empty for disabled
+        guard let colon = spec.lastIndex(of: ":"), let equals = spec.lastIndex(of: "="), colon < equals else {
+            throw CLIError("--program-dll takes EXE:DLL=MODE")
+        }
+        let exe = String(spec[..<colon]), dll = String(spec[spec.index(after: colon)..<equals])
+        record.options.programDllOverrides[exe, default: [:]][dll] = String(spec[spec.index(after: equals)...])
+    }
+
+    let name = options.one("--name") ?? record.name
+    let root = library.home.newBottleRoot(for: name)
+    try fm.createDirectory(at: library.home.bottles, withIntermediateDirectories: true)
+    try fm.moveItem(at: source, to: root)
+    print("Moved to \(root.path)")
+    let setup = BottleSetup(runtime: runtime.runtime, root: root, options: record.options)
+    try setup.isolate()
+    record.name = name
+    try library.save(record, in: root)
+
+    let baseline = PrefixSnapshot.capture(prefix: URL(fileURLWithPath: fresh, isDirectory: true).appendingPathComponent("prefix"))
+    try baseline.write(to: root.appendingPathComponent(Library.baselineFile))
+    let result = InstallDiscovery.discover(prefix: setup.prefix, baseline: baseline, product: name)
+    print(describe(result))
+    var game = Game(id: root.lastPathComponent, name: name)
+    game.merge(result)
+    if let registered = game.uninstall?.displayName, options.one("--name") == nil { game.name = registered }
+    game.publisher = game.uninstall?.publisher
+    try library.save(game, in: root)
+    try setup.applyProgramOverrides()
+    guard let entry = library.entry(at: root) else { throw CLIError("Could not read the adopted bottle") }
+    let app = try GameLauncher.makeBridge(for: entry, shimBinary: try shimBinary(), home: library.home)
+    game.bridge = app.path
+    try library.save(game, in: root)
+    print("Added to the library: \(game.name) → \(target(game.primary)); bridge: \(app.path)")
+    if options.flags.contains("--default") { try await setDefault(app, schemes: game.schemes) }
+}
+
 func bottleSetup(_ options: Options) throws -> BottleSetup {
     guard let runtime = options.one("--runtime"), let at = options.one("--at") else {
         throw CLIError("Pass --runtime DIR and --at DIR")
@@ -444,6 +511,8 @@ do {
         for r in runtimes { print("\(r.version)  \(r.runtime.root)") }
     case "install":
         try await install(options)
+    case "adopt":
+        try await adopt(options)
     case "library":
         let entries = Library().entries()
         if entries.isEmpty { print("The library is empty (\(RiftwayHome.standard.bottles.path))") }
