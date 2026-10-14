@@ -164,7 +164,12 @@ como las demás opciones.
    familia y batería, modo por programa, botones con los nombres de cada control,
    asignar una tecla presionándola, clics, capas, qué mueve el mouse, importar de
    Steam Input y prueba en vivo (el botón presionado se ilumina y se selecciona).
-   Falta: la sección `controller` de los perfiles, para compartir mapeos.
+   Capas renombrables (los botones que las mantienen se actualizan). **Exportar** guarda
+   la configuración de todo el juego (`riftway.controller`, esquema 1: cada programa con
+   su modo y mapeo, sin datos del jugador ni de la botella); **Importar** acepta ese
+   archivo (se combina por programa) o un `.vdf` de Steam para el programa elegido. CLI:
+   `riftway controller <juego> --export/--import archivo.json`.
+   Falta: la sección `controller` de los perfiles, para que un juego traiga un mapeo.
 5. Capa 1 (remapeo de SDL) y la opción de PlayStation crudo.
 
 ## Implementación (capa 2)

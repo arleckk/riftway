@@ -71,10 +71,11 @@ Profiles and compatibility (profiles/ in the app, plus <home>/Profiles):
 
 Controllers (PRD-08; keys and mouse need the Riftway Input helper):
   riftway controller <game> [--program EXE (--mode native|desktop|keyboard|off | --import FILE.vdf |
-                             --pointer leftStick,rightStick,touchpad|none)]
+                             --pointer leftStick,rightStick,touchpad|none)] [--import FILE.json] [--export FILE.json]
       Show the game's controller setup, or set a program's mode; --import reads
       a Steam Input configuration (controller_*.vdf) as that program's keyboard mode;
-      --pointer sets what moves the mouse in its keyboard mode.
+      --pointer sets what moves the mouse in its keyboard mode. --export writes every
+      program's setup to a file to share; --import FILE.json merges one by program.
   riftway controller-import <file.vdf>
       Show what Riftway would take from a Steam Input configuration.
 
@@ -94,7 +95,7 @@ struct Options {
     static let valued: Set<String> = ["--bottle", "--prefix", "--wine", "--name", "--scheme", "--arg", "--icon", "--output",
                                       "--runtime", "--at", "--timeout", "--debug", "--app-dpi", "--mouselook", "--env",
                                       "--baseline-from", "--installer-arg", "--runtime-version", "--program-dll", "--command", "--args", "--feed", "--app",
-                                      "--staged", "--target", "--pid", "--program", "--mode", "--import", "--pointer"]
+                                      "--staged", "--target", "--pid", "--program", "--mode", "--import", "--pointer", "--export"]
     /// Everything after `--`, passed through untouched.
     var passthrough: [String] = []
 
@@ -771,6 +772,16 @@ do {
         let library = Library()
         let entry = try findGame(library, options.positional.first)
         var layout = ControllerLayout.read(bottle: entry.root) ?? ControllerLayout()
+        if options.one("--program") == nil, let path = options.one("--import") {
+            let file = try ControllerExport.read(try Data(contentsOf: URL(fileURLWithPath: path)))
+            layout.merge(file.layout)
+            try layout.write(bottle: entry.root)
+            print("Imported \(file.layout.programs.count) programs" + (file.game.map { " (made for \($0))" } ?? ""))
+        }
+        if let path = options.one("--export") {
+            try ControllerExport(game: entry.game.name, layout: layout).data().write(to: URL(fileURLWithPath: path), options: .atomic)
+            print("Exported to \(path)")
+        }
         if let program = options.one("--program") {
             if let path = options.one("--import") {
                 let url = URL(fileURLWithPath: path)

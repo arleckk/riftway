@@ -23,6 +23,8 @@ struct ControllerEditorView: View {
     @State private var newLayer = ""
     @State private var addingProgram = false
     @State private var addingLayer = false
+    @State private var renamingLayer = false
+    @State private var layerName = ""
     @State private var notice: String?
 
     static let otherPrograms = "\u{0}other"
@@ -249,6 +251,7 @@ struct ControllerEditorView: View {
             .frame(width: 170)
             Button("Nueva capa…") { addingLayer = true }.fixedSize()
             if let current = layer {
+                Button("Renombrar…") { layerName = current; renamingLayer = true }.fixedSize()
                 Button("Quitar capa") {
                     update { set in
                         set.layers[current] = nil
@@ -286,6 +289,25 @@ struct ControllerEditorView: View {
             Button("Cancelar", role: .cancel) { newLayer = "" }
         } message: {
             Text("Una capa cambia los botones mientras mantienes presionado el botón que asignes a \"Mantener capa\", como las de Steam Input.")
+        }
+        .alert("Renombrar capa", isPresented: $renamingLayer) {
+            TextField("Nombre", text: $layerName)
+            Button("Renombrar") {
+                guard let current = layer else { return }
+                var set = actionSet
+                do {
+                    try set.renameLayer(current, to: layerName)
+                    update { $0 = set }
+                    layer = layerName.trimmingCharacters(in: .whitespaces)
+                } catch ActionSet.LayerError.exists(let name) {
+                    notice = "Ya hay una capa \(name)."
+                } catch {
+                    notice = "Una capa necesita un nombre."
+                }
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Los botones que la mantienen se actualizan.")
         }
     }
 
@@ -425,8 +447,9 @@ struct ControllerEditorView: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
+            Button("Importar…", action: importFile)
+            Button("Exportar…", action: exportFile)
             if editable {
-                Button("Importar de Steam Input…", action: importSteam)
                 Button("Restablecer") {
                     update { $0 = mode == .desktop ? .desktop : ActionSet() }
                     layer = nil
@@ -447,11 +470,29 @@ struct ControllerEditorView: View {
         }
     }
 
-    private func importSteam() {
+    /// A Riftway controller file (every program, merged by name) or a Steam
+    /// Input configuration (the selected program's bindings).
+    private func importFile() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "vdf") ?? .data]
-        panel.message = "Elige una configuración de Steam Input (controller_*.vdf)"
+        panel.allowedContentTypes = [.json, UTType(filenameExtension: "vdf") ?? .data]
+        panel.message = "Elige una configuración de control de Riftway (.json) o de Steam Input (controller_*.vdf)"
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        if url.pathExtension.lowercased() == "json" {
+            do {
+                let file = try ControllerExport.read(try Data(contentsOf: url))
+                layout.merge(file.layout)
+                program = file.layout.programs.keys.sorted().first ?? program
+                layer = nil
+                notice = "Importado de \(url.lastPathComponent)" + (file.game.map { " (hecho para \($0))" } ?? "") + ". Revisa y guarda."
+            } catch {
+                notice = "\(url.lastPathComponent) no es una configuración de control de Riftway."
+            }
+            return
+        }
+        guard program != nil, program != Self.otherPrograms else {
+            notice = "Elige primero el programa al que va la configuración de Steam."
+            return
+        }
         do {
             let result = try SteamInputImport.parse(try String(contentsOf: url, encoding: .utf8), name: url.lastPathComponent)
             update { $0 = result.actionSet }
@@ -463,6 +504,21 @@ struct ControllerEditorView: View {
             notice = "Importado de \(url.lastPathComponent)" + (result.skipped.isEmpty ? "." : "; se omitió lo que solo hace Steam (\(result.skipped.count)).")
         } catch {
             notice = "\(error)"
+        }
+    }
+
+    /// The whole game's setup, every program, as a file to keep or share.
+    private func exportFile() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "\(entry.game.name) - control.json"
+        panel.message = "Guarda la configuración de control de \(entry.game.name) (todos sus programas)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try ControllerExport(game: entry.game.name, layout: layout).data().write(to: url, options: .atomic)
+            notice = "Exportado a \(url.lastPathComponent)."
+        } catch {
+            notice = "No se pudo exportar: \(error)"
         }
     }
 }

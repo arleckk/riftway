@@ -248,3 +248,85 @@ extension ControllerLayout {
         return names
     }
 }
+
+extension ActionSet {
+    public enum LayerError: Error, Equatable, CustomStringConvertible {
+        case empty, exists(String), missing(String)
+        public var description: String {
+            switch self {
+            case .empty: "A layer needs a name"
+            case .exists(let name): "There is already a layer \(name)"
+            case .missing(let name): "There is no layer \(name)"
+            }
+        }
+    }
+
+    /// Renames a layer and every button that holds it.
+    public mutating func renameLayer(_ old: String, to new: String) throws {
+        let name = new.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { throw LayerError.empty }
+        guard name != old else { return }
+        guard layers[name] == nil else { throw LayerError.exists(name) }
+        guard let layer = layers.removeValue(forKey: old) else { throw LayerError.missing(old) }
+        layers[name] = layer
+        func rename(_ bindings: inout [ControllerButton: ControllerOutput]) {
+            for (button, output) in bindings where output == .holdLayer(old) { bindings[button] = .holdLayer(name) }
+        }
+        rename(&base.bindings)
+        for key in layers.keys { rename(&layers[key]!.bindings) }
+    }
+}
+
+/// A game's controller setup as a file to share (`Exportar…`): every program's
+/// mode and bindings, nothing about the player or the bottle.
+public struct ControllerExport: Codable, Equatable, Sendable {
+    public static let format = "riftway.controller"
+    public var format: String
+    public var schema: Int
+    /// The game it was made for, as a hint.
+    public var game: String?
+    public var layout: ControllerLayout
+
+    public init(game: String?, layout: ControllerLayout) {
+        format = Self.format
+        schema = 1
+        self.game = game
+        self.layout = layout
+    }
+
+    public enum Invalid: Error, Equatable, CustomStringConvertible {
+        case notAControllerFile, schema(Int)
+        public var description: String {
+            switch self {
+            case .notAControllerFile: "not a Riftway controller file"
+            case .schema(let version): "controller file schema \(version) is newer than this Riftway"
+            }
+        }
+    }
+
+    public func data() throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(self)
+    }
+
+    public static func read(_ data: Data) throws -> ControllerExport {
+        guard let file = try? JSONDecoder().decode(ControllerExport.self, from: data), file.format == format else {
+            throw Invalid.notAControllerFile
+        }
+        guard file.schema == 1 else { throw Invalid.schema(file.schema) }
+        return file
+    }
+}
+
+extension ControllerLayout {
+    /// Takes in an imported setup: its programs replace the ones with the same
+    /// name, the rest stay.
+    public mutating func merge(_ other: ControllerLayout) {
+        for (name, controls) in other.programs {
+            if let existing = programs.keys.first(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) { programs[existing] = nil }
+            programs[name] = controls
+        }
+        otherPrograms = other.otherPrograms
+    }
+}

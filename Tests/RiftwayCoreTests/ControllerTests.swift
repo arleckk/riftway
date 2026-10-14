@@ -125,4 +125,31 @@ let steamConfig = #"""
         #expect(KeyCodes.displayName("BACK_TICK") == "`")
         #expect(KeyCodes.displayName("KEYPAD_DASH") == "Num -")
     }
+
+    @Test func renameLayersAndShareLayouts() throws {
+        var set = try SteamInputImport.parse(steamConfig).actionSet
+        try set.renameLayer("Hold L1", to: "L1")
+        #expect(set.base.bindings[.l1] == .holdLayer("L1"))
+        #expect(set.output(for: .a, layers: ["L1"]) == .key("2"))
+        #expect(throws: ActionSet.LayerError.empty) { try set.renameLayer("L1", to: " ") }
+        #expect(throws: ActionSet.LayerError.missing("Nope")) { try set.renameLayer("Nope", to: "X") }
+        set.layers["R1"] = InputLayer()
+        #expect(throws: ActionSet.LayerError.exists("R1")) { try set.renameLayer("L1", to: "R1") }
+
+        var shared = ControllerLayout(otherPrograms: .off)
+        shared.programs["client-win64-shipping.exe"] = ProgramControls(mode: .keyboard, actionSet: set)
+        let data = try ControllerExport(game: "Digimon Super Rumble", layout: shared).data()
+        let file = try ControllerExport.read(data)
+        #expect(file.layout == shared && file.game == "Digimon Super Rumble")
+        #expect(throws: ControllerExport.Invalid.notAControllerFile) { try ControllerExport.read(Data("{}".utf8)) }
+
+        var mine = ControllerLayout()
+        mine.programs["Client-Win64-Shipping.exe"] = ProgramControls(mode: .native)
+        mine.programs["SuperRumble Launcher.exe"] = ProgramControls(mode: .desktop)
+        mine.merge(file.layout)
+        #expect(mine.programs.count == 2)
+        #expect(mine.controls(for: "Client-Win64-Shipping.exe").mode == .keyboard)
+        #expect(mine.controls(for: "SuperRumble Launcher.exe").mode == .desktop)
+        #expect(mine.otherPrograms == .off)
+    }
 }
