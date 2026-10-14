@@ -85,6 +85,25 @@ import UniformTypeIdentifiers
         #expect(library.offeredStoreGames(in: added).isEmpty)
     }
 
+    @Test func aStoreGameRunsWithTheLaunchersProfile() throws {
+        let (plain, _, base) = try steamHome()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let shipped = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("profiles")
+        let library = Library(home: plain.home, profiles: ProfileStore(directories: [shipped]))
+        let root = plain.home.bottles.appendingPathComponent("steam")
+        try library.save(BottleRecord(name: "Steam", runtimeVersion: "rw-1", created: Date(), options: GameOptions(),
+                                      profile: "steam", profileRevision: 1), in: root)
+        let steam = try #require(library.entry(at: root))
+        let added = try library.addStoreGame(try #require(library.offeredStoreGames(in: steam).first), launcher: steam)
+        // Its compatibility is its own, but Steam starts with Steam's arguments
+        // when the game's Play (or an uninstall link) is what starts it.
+        #expect(added.profile == nil)
+        #expect(added.bottleProfile?.id == "steam")
+        #expect(added.bottleProfile?.options.environment[GameProfile.appendArgsVariable]?.contains("steamwebhelper.exe=") == true)
+        #expect(steam.bottleProfile?.id == "steam")
+    }
+
     @Test func declinedGamesAreNotOfferedAgainButCanBeAdded() throws {
         let (library, steam, base) = try steamHome()
         defer { try? FileManager.default.removeItem(at: base) }

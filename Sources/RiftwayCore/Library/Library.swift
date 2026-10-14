@@ -103,6 +103,10 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
     public var runtime: WineRuntime?
     /// The game's profile, when the record names one Riftway knows.
     public var profile: GameProfile?
+    /// The bottle's profile, which the bottle runs with: the game's, or for a
+    /// game its launcher installed, the launcher's (Steam's webhelper
+    /// arguments must reach Steam however it starts).
+    public var bottleProfile: GameProfile? = nil
 
     public var id: String { game.id }
 
@@ -125,7 +129,7 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
     }
 
     public var setup: BottleSetup? {
-        runtime.map { BottleSetup(runtime: $0, root: root, options: record.options, profile: profile, runtimeVersion: record.runtimeVersion) }
+        runtime.map { BottleSetup(runtime: $0, root: root, options: record.options, profile: bottleProfile ?? profile, runtimeVersion: record.runtimeVersion) }
     }
 }
 
@@ -181,9 +185,10 @@ public struct Library: Sendable {
               let record = try? Self.decoder.decode(BottleRecord.self, from: recordData)
         else { return nil }
         // A store game is not the launcher: the bottle's profile is the launcher's.
-        let profile = game.store == nil ? record.profile.flatMap(profiles.profile(id:)) : nil
+        let bottleProfile = record.profile.flatMap(profiles.profile(id:))
         return LibraryEntry(game: game, root: root, folder: folder, record: record,
-                            runtime: home.runtime(version: record.runtimeVersion)?.runtime, profile: profile)
+                            runtime: home.runtime(version: record.runtimeVersion)?.runtime,
+                            profile: game.store == nil ? bottleProfile : nil, bottleProfile: bottleProfile)
     }
 
     /// The entry as saved now (it may have changed since `entry` was read).
