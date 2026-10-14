@@ -29,6 +29,27 @@ riftway — route URLs from macOS into Windows programs running in Wine
       Run the runtime's wine in a bottle's environment (wine ARGS…), wait for it.
   riftway inspect <file.exe|file.msi>...
       Analyze Windows installers and programs without running them.
+
+Library (~/Library/Application Support/Riftway, or $RIFTWAY_HOME):
+  riftway runtime-install <runtime folder>
+      Install an assembled runtime (work/runtime/artifacts/<version>) for new bottles.
+  riftway runtimes
+      List installed runtimes, newest first.
+  riftway install <installer> [--name NAME] [--installer-arg A]... [--no-bridge] [--default]
+      New bottle, run the installer (its wizard shows), discover what it left,
+      add the game to the library and build its bridge app.
+  riftway library
+      List the games and what Play starts.
+  riftway play <game> [--wait]
+      Start the game's primary program (or open its web page).
+  riftway rediscover <game> [--bridge]
+      Look for programs and URL protocols a launcher installed since.
+  riftway bridge <game> [--default]
+      Rebuild the game's bridge app (schemes and Play).
+  riftway diagnostics <game> on|off
+      Diagnostic mode: Wine's errors and DLL loads in the bottle's logs/session-*.log.
+  riftway program-dll <game> <program.exe> <dll> <mode|off|remove>
+      A DLL override for one program of the game (mode: n, b, n,b, b,n; off = disabled).
 """
 
 struct Options {
@@ -37,7 +58,8 @@ struct Options {
     var flags: Set<String> = []
 
     static let valued: Set<String> = ["--bottle", "--prefix", "--wine", "--name", "--scheme", "--arg", "--icon", "--output",
-                                      "--runtime", "--at", "--timeout", "--debug", "--app-dpi", "--mouselook", "--env"]
+                                      "--runtime", "--at", "--timeout", "--debug", "--app-dpi", "--mouselook", "--env",
+                                      "--baseline-from", "--installer-arg"]
     /// Everything after `--`, passed through untouched.
     var passthrough: [String] = []
 
@@ -199,6 +221,117 @@ func describe(_ report: InstallerReport) -> String {
     return lines.joined(separator: "\n")
 }
 
+func describe(_ result: InstallResult) -> String {
+    func target(_ p: DiscoveredProgram) -> String {
+        switch p.target {
+        case .executable(let path, let arguments): path + (arguments.map { $0.isEmpty ? "" : " " + $0 } ?? "")
+        case .web(let url): "web: " + url
+        }
+    }
+    var lines: [String] = []
+    lines.append("primary:    " + (result.primary.map { "\($0.name) → \(target($0))" } ?? "none"))
+    for p in result.programs { lines.append("program:    \(p.name) → \(target(p))") }
+    for u in result.uninstall { lines.append("uninstall:  \(u.displayName ?? u.key) [\(u.publisher ?? "?")] \(u.uninstallString ?? "")") }
+    for p in result.protocols { lines.append("protocol:   \(p.scheme): \(p.command)") }
+    if !result.associations.isEmpty { lines.append("extensions: " + result.associations.joined(separator: " ")) }
+    for d in result.drivers { lines.append("driver:     \(d.name) type=\(d.type.map(String.init) ?? "?") \(d.imagePath ?? "")") }
+    for e in result.executables.prefix(5) { lines.append("exe:        \(e)") }
+    lines.append("changed files: \(result.changedFiles)")
+    return lines.joined(separator: "\n")
+}
+
+func shimBinary() throws -> URL {
+    let shim = Bundle.main.executableURL!.resolvingSymlinksInPath().deletingLastPathComponent()
+        .appendingPathComponent(ShimBundle.executableName)
+    guard FileManager.default.isExecutableFile(atPath: shim.path) else {
+        throw CLIError("\(ShimBundle.executableName) was not found next to riftway (\(shim.path)); build both products")
+    }
+    return shim
+}
+
+func findGame(_ library: Library, _ query: String?) throws -> LibraryEntry {
+    guard let query else { throw CLIError("Pass the game (its name or id)") }
+    let entries = library.entries()
+    if let exact = entries.first(where: { $0.id == query || $0.game.name.caseInsensitiveCompare(query) == .orderedSame }) { return exact }
+    let matches = entries.filter { $0.game.name.localizedCaseInsensitiveContains(query) }
+    guard matches.count == 1 else {
+        throw CLIError(matches.isEmpty ? "No game matches \(query)" : "Several games match \(query): " + matches.map(\.game.name).joined(separator: ", "))
+    }
+    return matches[0]
+}
+
+func target(_ program: DiscoveredProgram?) -> String {
+    switch program?.target {
+    case .executable(let path, let arguments): path + (arguments.map { $0.isEmpty ? "" : " " + $0 } ?? "")
+    case .web(let url): url + " (web page)"
+    case nil: "nothing to start"
+    }
+}
+
+func setDefault(_ app: URL, schemes: [String]) async throws {
+    for scheme in schemes {
+        try await NSWorkspace.shared.setDefaultApplication(at: app, toOpenURLsWithScheme: scheme)
+        print("  default handler for \(scheme):")
+    }
+}
+
+func install(_ options: Options) async throws {
+    guard let path = options.positional.first else { throw CLIError("Pass the installer") }
+    let library = Library()
+    guard let runtime = library.home.installedRuntimes().first else {
+        throw CLIError("No runtime installed; run: riftway runtime-install work/runtime/artifacts/<version>")
+    }
+    let report = InstallerAnalyzer.analyze(URL(fileURLWithPath: path).standardizedFileURL)
+    print(describe(report))
+    if case .unsupported = report.kind { throw CLIError("Riftway can't install this file") }
+    let installation = Installation(report: report, name: options.one("--name"), runtime: runtime, library: library)
+    print("Bottle: \(installation.root.path) (runtime \(runtime.version))")
+    let start = Date()
+    let result = try installation.run(arguments: options.many("--installer-arg")) { stage in
+        switch stage {
+        case .creatingBottle: print("Creating the bottle…")
+        case .copyingInstaller: print("Copying the installer into the bottle…")
+        case .runningInstaller: print("Running the installer (finish its wizard)…")
+        case .discovering: print("Looking for what it installed…")
+        }
+    }
+    print(describe(result))
+    print(String(format: "(%.0f s)", Date().timeIntervalSince(start)))
+    if result.isEmpty {
+        print("The installer left nothing to start. The bottle stays at \(installation.root.path).")
+        return
+    }
+    let game = installation.makeGame(result)
+    try library.save(game, in: installation.root)
+    print("Added to the library: \(game.name) → \(target(game.primary))")
+    guard !options.flags.contains("--no-bridge"), let entry = library.entry(at: installation.root) else { return }
+    let app = try GameLauncher.makeBridge(for: entry, shimBinary: try shimBinary(), home: library.home)
+    try library.save({ var g = game; g.bridge = app.path; return g }(), in: installation.root)
+    print("Bridge: \(app.path)" + (game.schemes.isEmpty ? "" : " (schemes: \(game.schemes.joined(separator: ", ")))"))
+    if options.flags.contains("--default") { try await setDefault(app, schemes: game.schemes) }
+}
+
+func play(_ options: Options) throws {
+    let library = Library()
+    let entry = try findGame(library, options.positional.first)
+    switch try GameLauncher.action(for: entry) {
+    case .openWebPage(let url):
+        NSWorkspace.shared.open(url)
+        print("Opened \(url.absoluteString)")
+    case .wine(let plan, let log):
+        let pid = try Launcher.start(plan, outputLog: log)
+        print("Started \(entry.game.name) (pid \(pid))" + (log.map { "; log: \($0.path)" } ?? ""))
+    }
+    var game = entry.game
+    game.lastPlayed = Date()
+    try library.save(game, in: entry.root)
+    if options.flags.contains("--wait") {
+        try GameLauncher.waitForSessionEnd(entry)
+        let (updated, newSchemes) = try library.rediscover(entry)
+        print("Session ended. Programs: \(updated.programs.count); new schemes: \(newSchemes.isEmpty ? "none" : newSchemes.joined(separator: ", "))")
+    }
+}
+
 func bottleSetup(_ options: Options) throws -> BottleSetup {
     guard let runtime = options.one("--runtime"), let at = options.one("--at") else {
         throw CLIError("Pass --runtime DIR and --at DIR")
@@ -276,6 +409,94 @@ do {
         for path in options.positional {
             print(describe(InstallerAnalyzer.analyze(URL(fileURLWithPath: path))))
         }
+    case "shortcut":
+        guard !options.positional.isEmpty else { throw CLIError("Pass one or more .lnk files") }
+        for path in options.positional {
+            let link = try ShellLink(contentsOf: URL(fileURLWithPath: path))
+            print(URL(fileURLWithPath: path).lastPathComponent)
+            for (label, value) in [("target", link.target), ("arguments", link.arguments), ("folder", link.workingDirectory),
+                                   ("icon", link.iconLocation.map { "\($0),\(link.iconIndex)" }), ("comment", link.description)] {
+                if let value { print("  \(label.padding(toLength: 10, withPad: " ", startingAt: 0)) \(value)") }
+            }
+        }
+    case "discover":
+        // Development: what a bottle gained since its baseline (or since another,
+        // fresh bottle's state with --baseline-from).
+        guard let at = options.one("--at") else { throw CLIError("Pass --at BOTTLE") }
+        let root = URL(fileURLWithPath: at, isDirectory: true).standardizedFileURL
+        let baseline: PrefixSnapshot
+        if let other = options.one("--baseline-from") {
+            baseline = PrefixSnapshot.capture(prefix: URL(fileURLWithPath: other, isDirectory: true).appendingPathComponent("prefix"))
+        } else {
+            baseline = try PrefixSnapshot.read(from: root.appendingPathComponent("baseline.json"))
+        }
+        let start = Date()
+        let result = InstallDiscovery.discover(prefix: root.appendingPathComponent("prefix"), baseline: baseline, product: options.one("--name"))
+        print(describe(result))
+        print(String(format: "(%.2f s)", Date().timeIntervalSince(start)))
+    case "runtime-install":
+        guard let path = options.positional.first else { throw CLIError("Pass the runtime folder") }
+        let installed = try RiftwayHome.standard.installRuntime(from: URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL)
+        print("Installed runtime \(installed.version) at \(installed.runtime.root)")
+    case "runtimes":
+        let runtimes = RiftwayHome.standard.installedRuntimes()
+        if runtimes.isEmpty { print("No runtimes in \(RiftwayHome.standard.runtimes.path)") }
+        for r in runtimes { print("\(r.version)  \(r.runtime.root)") }
+    case "install":
+        try await install(options)
+    case "library":
+        let entries = Library().entries()
+        if entries.isEmpty { print("The library is empty (\(RiftwayHome.standard.bottles.path))") }
+        for e in entries {
+            print("\(e.game.name)  [\(e.id), runtime \(e.record.runtimeVersion)\(e.runtime == nil ? " MISSING" : "")\(e.record.options.diagnostics ? ", diagnostics" : "")]")
+            print("  play:    \(target(e.game.primary))")
+            if !e.game.schemes.isEmpty { print("  schemes: \(e.game.schemes.joined(separator: ", "))") }
+            if let bridge = e.game.bridge { print("  bridge:  \(bridge)") }
+            if !e.game.drivers.isEmpty { print("  drivers: \(e.game.drivers.map(\.name).joined(separator: ", "))") }
+        }
+    case "play":
+        try play(options)
+    case "rediscover":
+        let library = Library()
+        let entry = try findGame(library, options.positional.first)
+        let (game, newSchemes) = try library.rediscover(entry)
+        print("Programs: " + game.programs.map(\.name).joined(separator: ", "))
+        print("Schemes: " + game.schemes.joined(separator: ", ") + (newSchemes.isEmpty ? "" : " (new: \(newSchemes.joined(separator: ", ")))"))
+        if options.flags.contains("--bridge"), let updated = library.entry(at: entry.root) {
+            print("Bridge: \(try GameLauncher.makeBridge(for: updated, shimBinary: try shimBinary(), home: library.home).path)")
+        }
+    case "bridge":
+        let library = Library()
+        let entry = try findGame(library, options.positional.first)
+        let app = try GameLauncher.makeBridge(for: entry, shimBinary: try shimBinary(), home: library.home)
+        var game = entry.game
+        game.bridge = app.path
+        try library.save(game, in: entry.root)
+        print("Bridge: \(app.path)")
+        if options.flags.contains("--default") { try await setDefault(app, schemes: game.schemes) }
+    case "diagnostics", "program-dll":
+        let library = Library()
+        let entry = try findGame(library, options.positional.first)
+        var record = entry.record
+        if args[1] == "diagnostics" {
+            guard options.positional.count == 2, ["on", "off"].contains(options.positional[1]) else { throw CLIError("Pass on or off") }
+            record.options.diagnostics = options.positional[1] == "on"
+        } else {
+            guard options.positional.count == 4 else { throw CLIError("Pass <game> <program.exe> <dll> <mode|off|remove>") }
+            let (program, dll, mode) = (options.positional[1], options.positional[2], options.positional[3])
+            if mode == "remove" {
+                record.options.programDllOverrides[program]?[dll] = nil
+                if record.options.programDllOverrides[program]?.isEmpty == true { record.options.programDllOverrides[program] = nil }
+            } else {
+                record.options.programDllOverrides[program, default: [:]][dll] = mode == "off" ? "" : mode
+            }
+        }
+        try library.save(record, in: entry.root)
+        guard let updated = library.entry(at: entry.root), let setup = updated.setup else { throw CLIError("Runtime missing") }
+        if args[1] == "program-dll" { try setup.applyProgramOverrides() }
+        // The bridge carries the bottle's options: rebuild it.
+        if entry.game.bridge != nil { _ = try GameLauncher.makeBridge(for: updated, shimBinary: try shimBinary(), home: library.home) }
+        print("Saved. Diagnostics: \(record.options.diagnostics ? "on" : "off"); program overrides: \(record.options.programDllOverrides)")
     case "help", "--help", "-h":
         print(usage)
     default:

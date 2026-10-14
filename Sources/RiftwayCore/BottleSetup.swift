@@ -179,6 +179,34 @@ public struct BottleSetup: Sendable {
         try waitForServer()
     }
 
+    /// Writes `options.programDllOverrides` as Wine's per-program defaults,
+    /// replacing what an earlier profile wrote.
+    public func applyProgramOverrides() throws {
+        let key = #"HKEY_CURRENT_USER\Software\Wine\AppDefaults"#
+        _ = try ProcessRunner.run(plan("wine", ["reg.exe", "delete", key, "/f"]), log: logs.appendingPathComponent("registry.log"), timeout: 60)
+        guard !options.programDllOverrides.isEmpty else { return try waitForServer() }
+        var text = "Windows Registry Editor Version 5.00\r\n"
+        for (program, overrides) in options.programDllOverrides.sorted(by: { $0.key < $1.key }) {
+            text += "\r\n[\(key)\\\(Self.regEscape(program))\\DllOverrides]\r\n"
+            for (dll, mode) in overrides.sorted(by: { $0.key < $1.key }) {
+                text += "\"\(Self.regEscape(dll))\"=\"\(Self.regEscape(mode))\"\r\n"
+            }
+        }
+        let file = prefix.appendingPathComponent("drive_c/ProgramData/Riftway/program-overrides.reg")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        var data = Data([0xFF, 0xFE])
+        for unit in text.utf16 { data += [UInt8(unit & 0xFF), UInt8(unit >> 8)] }
+        try data.write(to: file)
+        let status = try ProcessRunner.run(plan("wine", ["reg.exe", "import", #"C:\ProgramData\Riftway\program-overrides.reg"#]),
+                                           log: logs.appendingPathComponent("registry.log"), timeout: 60)
+        guard status == 0 else { throw Failure.step("reg import program-overrides.reg", status: status) }
+        try waitForServer()
+    }
+
+    static func regEscape(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+    }
+
     /// Waits until the bottle's Wine processes and server have exited.
     public func waitForServer(timeout: TimeInterval = 60) throws {
         _ = try ProcessRunner.run(plan("wineserver", ["-w"]), log: nil, timeout: timeout)

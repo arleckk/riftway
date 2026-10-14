@@ -2,12 +2,14 @@ import Foundation
 
 /// Read-only view of one Wine registry hive file (`system.reg`, `user.reg`).
 ///
-/// Only string values (`"x"` and `str(2):"x"`) are kept; dword, hex and other
+/// String values (`"x"` and `str(2):"x"`) and DWORDs are kept; hex and other
 /// typed values are skipped, including their `\`-continued lines. Key paths and
 /// value names are compared case-insensitively, as on Windows.
 public struct WineRegistry: Sendable {
     /// Lowercased key path → lowercased value name ("" is the default value) → value.
     public private(set) var keys: [String: [String: String]] = [:]
+    /// Lowercased key path → lowercased value name → DWORD value.
+    public private(set) var dwords: [String: [String: UInt32]] = [:]
 
     public init(text: String) {
         var current: String?
@@ -33,6 +35,7 @@ public struct WineRegistry: Sendable {
                 let (entry, needsContinuation) = Self.parseValueLine(trimmed)
                 continuing = needsContinuation
                 if let (name, value) = entry { keys[key, default: [:]][name.lowercased()] = value }
+                else if let (name, value) = Self.parseDword(trimmed) { dwords[key, default: [:]][name.lowercased()] = value }
             default:
                 continue
             }
@@ -48,7 +51,14 @@ public struct WineRegistry: Sendable {
         keys[path.lowercased()]?[name.lowercased()]
     }
 
+    public func dword(_ name: String, at path: String) -> UInt32? {
+        dwords[path.lowercased()]?[name.lowercased()]
+    }
+
     public func hasKey(_ path: String) -> Bool { keys[path.lowercased()] != nil }
+
+    /// Every key path in the hive, lowercased.
+    public var keyPaths: Set<String> { Set(keys.keys) }
 
     /// Names of the direct subkeys of `path`, lowercased.
     public func subkeys(of path: String) -> [String] {
@@ -107,6 +117,24 @@ public struct WineRegistry: Sendable {
             return (nil, false)
         }
         return (nil, rest.hasSuffix("\\"))
+    }
+
+    /// `"Type"=dword:00000001` → ("Type", 1).
+    static func parseDword(_ line: Substring) -> (String, UInt32)? {
+        let utf16 = Array(line.utf16)
+        var i = 0
+        let name: String
+        if utf16.first == 0x40 {
+            name = ""
+            i = 1
+        } else {
+            guard let (parsed, next) = readQuoted(utf16, from: 0) else { return nil }
+            name = parsed
+            i = next
+        }
+        let rest = String(decoding: utf16[i...], as: UTF16.self)
+        guard rest.hasPrefix("=dword:"), let value = UInt32(rest.dropFirst(7).prefix(8), radix: 16) else { return nil }
+        return (name, value)
     }
 
     /// Reads a `"..."` string starting at `start` (the opening quote). Returns the

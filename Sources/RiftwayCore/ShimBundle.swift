@@ -14,6 +14,12 @@ public struct ShimConfig: Codable, Sendable, Equatable {
     /// Keep Wine's output (errors only unless the environment sets WINEDEBUG) in
     /// `<bottle>/logs/session-<time>.log`, for diagnosing a game.
     public var wineLog: Bool = false
+    /// The Windows command line a double-click on the bridge starts (program
+    /// first). Without one, the program of the first scheme starts.
+    public var program: [String]?
+    /// A web page a double-click opens in the Mac's browser instead (games
+    /// started from their site, which then calls the bridge's scheme).
+    public var webPage: String?
 
     public init(displayName: String, bottle: Bottle, schemes: [String], extraArguments: [String] = [],
                 environment: [String: String] = [:], dryRun: Bool = false) {
@@ -26,7 +32,7 @@ public struct ShimConfig: Codable, Sendable, Equatable {
         self.dryRun = dryRun
     }
 
-    enum CodingKeys: String, CodingKey { case displayName, bundleIdentifier, bottle, schemes, extraArguments, environment, dryRun, wineLog }
+    enum CodingKeys: String, CodingKey { case displayName, bundleIdentifier, bottle, schemes, extraArguments, environment, dryRun, wineLog, program, webPage }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -38,18 +44,28 @@ public struct ShimConfig: Codable, Sendable, Equatable {
         environment = try c.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
         dryRun = try c.decodeIfPresent(Bool.self, forKey: .dryRun) ?? false
         wineLog = try c.decodeIfPresent(Bool.self, forKey: .wineLog) ?? false
+        program = try c.decodeIfPresent([String].self, forKey: .program)
+        webPage = try c.decodeIfPresent(String.self, forKey: .webPage)
+    }
+
+    /// `webPage` when it is an http or https address.
+    public var webPageURL: URL? {
+        guard let webPage, let url = URL(string: webPage), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+        return url
     }
 
     /// Where a session's Wine output goes when `wineLog` is on.
     public func sessionLog(at date: Date = Date()) -> URL? {
-        guard wineLog else { return nil }
+        var diagnostics = false
+        if case .riftway(_, let options) = bottle.backend { diagnostics = options.diagnostics }
+        guard wineLog || diagnostics else { return nil }
         let stamp = ISO8601DateFormatter().string(from: date).replacingOccurrences(of: ":", with: "-")
         let root = bottle.prefixURL.deletingLastPathComponent()
         return root.appendingPathComponent("logs/session-\(stamp).log")
     }
 
     public var bridge: URLBridge {
-        URLBridge(bottle: bottle, schemes: Set(schemes), extraArguments: extraArguments, environment: environment)
+        URLBridge(bottle: bottle, schemes: Set(schemes), extraArguments: extraArguments, environment: environment, program: program)
     }
 }
 
@@ -89,12 +105,14 @@ public enum ShimBundle {
             // No Dock tile of its own: the shim hands off to Wine and quits.
             "LSUIElement": true,
             "NSHighResolutionCapable": true,
-            "CFBundleURLTypes": [[
+        ]
+        if !config.schemes.isEmpty {
+            plist["CFBundleURLTypes"] = [[
                 "CFBundleURLName": config.bundleIdentifier + ".url",
                 "CFBundleURLSchemes": config.schemes,
                 "CFBundleTypeRole": "Viewer",
-            ]],
-        ]
+            ]]
+        }
         if hasIcon { plist["CFBundleIconFile"] = "AppIcon" }
         return plist
     }

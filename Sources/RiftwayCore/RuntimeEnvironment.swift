@@ -22,17 +22,26 @@ public struct GameOptions: Sendable, Codable, Equatable {
     public var appDPI: (dpi: Int, programs: [String])?
     /// `dll` → `n`, `b`, `n,b`, `b,n` or "" (disabled), on top of the runtime's defaults.
     public var dllOverrides: [String: String] = [:]
+    /// DLL overrides for one executable only (`HKCU\Software\Wine\AppDefaults\<exe>\DllOverrides`),
+    /// such as `winegstreamer` off for a launcher whose web view crashes with it.
+    public var programDllOverrides: [String: [String: String]] = [:]
     /// Extra variables from the game's profile; they win over everything else.
     public var environment: [String: String] = [:]
+    /// Diagnostic mode: Wine's errors, DLL loads and DXMT's log go to the
+    /// bottle's `logs/session-<time>.log`.
+    public var diagnostics = false
 
     public init() {}
 
     public static func == (a: GameOptions, b: GameOptions) -> Bool {
         a.mouselook == b.mouselook && a.gameMode == b.gameMode && a.appDPI?.dpi == b.appDPI?.dpi
             && a.appDPI?.programs == b.appDPI?.programs && a.dllOverrides == b.dllOverrides && a.environment == b.environment
+            && a.programDllOverrides == b.programDllOverrides && a.diagnostics == b.diagnostics
     }
 
-    enum CodingKeys: String, CodingKey { case mouselook, gameMode, appDPI, appDPIPrograms, dllOverrides, environment }
+    enum CodingKeys: String, CodingKey {
+        case mouselook, gameMode, appDPI, appDPIPrograms, dllOverrides, programDllOverrides, environment, diagnostics
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -43,6 +52,8 @@ public struct GameOptions: Sendable, Codable, Equatable {
         }
         dllOverrides = try c.decodeIfPresent([String: String].self, forKey: .dllOverrides) ?? [:]
         environment = try c.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
+        programDllOverrides = try c.decodeIfPresent([String: [String: String]].self, forKey: .programDllOverrides) ?? [:]
+        diagnostics = try c.decodeIfPresent(Bool.self, forKey: .diagnostics) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -53,6 +64,8 @@ public struct GameOptions: Sendable, Codable, Equatable {
         try c.encodeIfPresent(appDPI?.programs, forKey: .appDPIPrograms)
         try c.encode(dllOverrides, forKey: .dllOverrides)
         try c.encode(environment, forKey: .environment)
+        try c.encode(programDllOverrides, forKey: .programDllOverrides)
+        try c.encode(diagnostics, forKey: .diagnostics)
     }
 }
 
@@ -112,9 +125,18 @@ public enum RuntimeEnvironment {
         if let dpi = options.appDPI, !dpi.programs.isEmpty {
             env["WINE_APP_DPI"] = "\(dpi.dpi):" + dpi.programs.joined(separator: ";")
         }
+        if options.diagnostics {
+            env["WINEDEBUG"] = diagnosticChannels
+            env["DXMT_LOG_LEVEL"] = "info"
+            env["DXMT_LOG_PATH"] = nil  // stderr, into the session log
+        }
         env.merge(options.environment) { $1 }
         return env
     }
+
+    /// Errors, DLL loads with timestamps and process ids; never `+relay` or
+    /// `+process`, which would copy command lines (URLs with tokens) into the log.
+    public static let diagnosticChannels = "fixme-all,+timestamp,+pid,+loaddll"
 
     /// Wine's syntax: DLLs that share a mode are joined by commas, groups by
     /// semicolons (`d3d11,dxgi=b;d3d12=`). Sorted so the value is stable.

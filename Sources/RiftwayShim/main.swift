@@ -26,6 +26,11 @@ final class ShimDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [self] in
             guard !receivedURL else { return }
             guard let config else { return quitSoon() }
+            if let page = config.webPageURL {
+                log.write("shim \(config.bundleIdentifier): opening the game's web page")
+                NSWorkspace.shared.open(page)
+                return quitSoon()
+            }
             launch(secret: nil) { () throws(BridgeError) in try config.bridge.planForProgram() }
         }
     }

@@ -39,12 +39,16 @@ public struct URLBridge: Sendable {
     /// Appended to the registered command (for the protocol's own program).
     public var extraArguments: [String]
     public var environment: [String: String]
+    /// What opening the bridge without a URL starts (Windows command line).
+    public var program: [String]?
 
-    public init(bottle: Bottle, schemes: Set<String>, extraArguments: [String] = [], environment: [String: String] = [:]) {
+    public init(bottle: Bottle, schemes: Set<String>, extraArguments: [String] = [], environment: [String: String] = [:],
+                program: [String]? = nil) {
         self.bottle = bottle
         self.schemes = Set(schemes.map { $0.lowercased() }).subtracting(URLProtocolRegistration.reservedSchemes)
         self.extraArguments = extraArguments
         self.environment = environment
+        self.program = program
     }
 
     public func plan(forURL url: String) throws(BridgeError) -> LaunchPlan {
@@ -57,6 +61,7 @@ public struct URLBridge: Sendable {
 
     /// Opens the protocol's program without a URL, for a double-click on the shim.
     public func planForProgram() throws(BridgeError) -> LaunchPlan {
+        if let program, !program.isEmpty { return try bottle.launchPlan(windowsArguments: program, environment: environment) }
         guard let scheme = schemes.sorted().first else { throw .schemeNotRegistered(scheme: "", bottle: bottle.name) }
         let registration = try registration(for: scheme)
         let args = WindowsCommandLine.expand(template: registration.command, argument: nil) + extraArguments
