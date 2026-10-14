@@ -131,7 +131,8 @@ tengan alguna. `rw-0.1.4-spike` se desinstaló; ninguna botella lo usaba.
    Metal Toolchain 17F109, `metal` 32023.883): frente a `rw-0.1.9` solo cambian
    `winemetal.so` (SDK de las CLT) y `d3d11.dll` (shaders de Metal 26.6); lo de media es
    idéntico con el `pkgconf` propio. DXMT recompilado desde cero da los mismos 4,938
-   archivos. La comparación con otra Mac queda pendiente: por ahora todo se mantiene local
+   archivos. Probado en DSR el mismo día (gráficos, carga y video sin cambios). La
+   comparación con otra Mac queda pendiente: por ahora todo se mantiene local
    (sin subir nada a GitHub), así que el workflow está listo pero no se ha corrido.
 7. ✅ Revisión de licencia del código de Soju (2026-10-14, ver "Licencia del código de Soju"):
    se quita `ncrypt-persisted-keys.patch` (GPL-3.0) desde `rw-0.1.3-spike`.

@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "digimon-super-rumble",
   "name": "Digimon Super Rumble",
-  "revision": 8,
+  "revision": 9,
   "match": {
     "product": [
       "Digimon SuperRumble",
@@ -32,7 +32,7 @@
     "date": "2026-10-14",
     "macos": "26.6",
     "hardware": "Mac15,10 (Apple M3 Max)",
-    "runtime": "rw-0.1.9-spike",
+    "runtime": "rw-0.1.10-spike",
     "online": true
   },
   "game": {
