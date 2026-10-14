@@ -101,3 +101,58 @@ enum LauncherIcon {
         return image
     }
 }
+
+/// Asks before adding the games a launcher installed (PRD-04 R1.6): each with
+/// its cover, chosen by default. Those left out are not offered again; the
+/// launcher's page still lists them.
+struct StoreOfferView: View {
+    let offer: LibraryModel.StoreOffer
+    let answer: ([InstalledStoreGame]) -> Void
+    @State private var chosen: Set<String>
+
+    init(offer: LibraryModel.StoreOffer, answer: @escaping ([InstalledStoreGame]) -> Void) {
+        self.offer = offer
+        self.answer = answer
+        _chosen = State(initialValue: Set(offer.games.map(\.id)))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(offer.games.count == 1 ? "\(offer.launcher.game.name) instaló un juego nuevo"
+                     : "\(offer.launcher.game.name) instaló \(offer.games.count) juegos nuevos")
+                    .font(.title2.weight(.bold))
+                Text("¿Lo agregas a tu biblioteca? Tendrá su portada y un acceso directo en Aplicaciones, y Jugar lo abrirá con \(offer.launcher.game.name).")
+                    .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            ScrollView {
+                VStack(spacing: 10) {
+                    ForEach(offer.games) { game in
+                        Toggle(isOn: Binding(get: { chosen.contains(game.id) },
+                                             set: { if $0 { chosen.insert(game.id) } else { chosen.remove(game.id) } })) {
+                            HStack(spacing: 12) {
+                                StoreCoverThumbnail(url: game.cover).frame(width: 44)
+                                Text(game.name).font(.headline)
+                            }
+                        }
+                        .toggleStyle(.checkbox)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 320)
+            HStack {
+                Text("Los que no agregues siguen en la página de \(offer.launcher.game.name).").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Ahora no") { answer([]) }.keyboardShortcut(.cancelAction)
+                Button(chosen.count > 1 ? "Agregar \(chosen.count)" : "Agregar") {
+                    answer(offer.games.filter { chosen.contains($0.id) })
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(chosen.isEmpty)
+            }
+        }
+        .padding(22)
+        .frame(width: 520)
+    }
+}

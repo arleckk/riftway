@@ -49,6 +49,12 @@ Library (~/Library/Application Support/Riftway, or $RIFTWAY_HOME):
       add the game to the library and build its bridge app.
   riftway library
       List the games and what Play starts.
+  riftway store-games <launcher>
+      The games a launcher (Steam) installed in its bottle, and whether each is
+      in the library, offered or declined.
+  riftway store-add <launcher> <app id>
+      Add one of them: its own entry (Play goes through the launcher), its
+      cover from the launcher, and a shortcut app.
   riftway play <game> [--wait]
       Start the game's primary program (or open its web page).
   riftway rediscover <game> [--bridge]
@@ -418,8 +424,8 @@ func play(_ options: Options) throws {
     }
     var game = entry.game
     game.lastPlayed = Date()
-    try library.save(game, in: entry.root)
-    if options.flags.contains("--wait") {
+    try library.save(game, in: entry.folder)
+    if options.flags.contains("--wait"), entry.game.store == nil {
         try GameLauncher.waitForSessionEnd(entry)
         let (updated, newSchemes) = try library.rediscover(entry)
         print("Session ended. Programs: \(updated.programs.count); new schemes: \(newSchemes.isEmpty ? "none" : newSchemes.joined(separator: ", "))")
@@ -537,7 +543,7 @@ func playSetup(_ options: Options) throws {
     } else {
         throw CLIError("Pass --link, --command PATH or --reset")
     }
-    if game.bridge != nil, let updated = library.entry(at: entry.root) {
+    if game.bridge != nil, let updated = library.current(entry) {
         _ = try GameLauncher.makeBridge(for: updated, shimBinary: try shimBinary(), home: library.home)
     }
 }
@@ -748,12 +754,16 @@ do {
         if entries.isEmpty { print("The library is empty (\(RiftwayHome.standard.bottles.path))") }
         for e in entries {
             print("\(e.game.name)  [\(e.id), runtime \(e.record.runtimeVersion)\(e.runtime == nil ? " MISSING" : "")\(e.record.options.diagnostics ? ", diagnostics" : "")]")
-            switch e.game.customLaunch {
-            case .link(let scheme)?:
-                let saved = e.secrets.savedDate(account: e.game.secretAccount)
-                print("  play:    last \(scheme): link" + (saved.map { " (saved \($0))" } ?? " (none yet: opens the site)"))
-            case .command(let path, let arguments)?: print("  play:    \(path) \(arguments ?? "") (custom)")
-            case nil: print("  play:    \(target(e.game.primary))")
+            if let store = e.game.store {
+                print("  play:    \(store.playLink) (through the bottle's \(store.store.rawValue); \(store.installDir))")
+            } else {
+                switch e.game.customLaunch {
+                case .link(let scheme)?:
+                    let saved = e.secrets.savedDate(account: e.game.secretAccount)
+                    print("  play:    last \(scheme): link" + (saved.map { " (saved \($0))" } ?? " (none yet: opens the site)"))
+                case .command(let path, let arguments)?: print("  play:    \(path) \(arguments ?? "") (custom)")
+                case nil: print("  play:    \(target(e.game.primary))")
+                }
             }
             if !e.game.schemes.isEmpty { print("  schemes: \(e.game.schemes.joined(separator: ", "))") }
             if let bridge = e.game.bridge { print("  bridge:  \(bridge)") }
@@ -762,6 +772,29 @@ do {
             print("  status:  \(c.status.rawValue)" + (c.profile.map { " (profile \($0.id))" } ?? "")
                   + (c.vendors.isEmpty ? "" : "; anti-cheat: " + c.vendors.map(\.displayName).joined(separator: ", ")))
         }
+    case "store-games":
+        let library = Library()
+        let launcher = try findGame(library, options.positional.first)
+        let installed = library.installedStoreGames(in: launcher)
+        if installed.isEmpty { print("\(launcher.game.name) has no games installed (or is not Steam)") }
+        let linked = Set(library.entries().map(\.id))
+        let offered = Set(library.offeredStoreGames(in: launcher).map(\.id))
+        for game in installed {
+            let state = linked.contains(game.id) ? "in the library" : offered.contains(game.id) ? "offered" : "declined"
+            print("\(game.link.appID.padding(toLength: 9, withPad: " ", startingAt: 0)) \(game.name)  [\(state)]")
+        }
+    case "store-add":
+        let library = Library()
+        let launcher = try findGame(library, options.positional.first)
+        guard options.positional.count == 2,
+              let game = library.installedStoreGames(in: launcher).first(where: { $0.link.appID == options.positional[1] }) else {
+            throw CLIError("Pass the launcher's game and an installed app ID (riftway store-games)")
+        }
+        var entry = try library.addStoreGame(game, launcher: launcher)
+        let app = try GameLauncher.makeBridge(for: entry, shimBinary: try shimBinary(), home: library.home)
+        entry.game.bridge = app.path
+        try library.save(entry.game, in: entry.folder)
+        print("Added \(game.name) [\(entry.id)]; shortcut: \(app.path)")
     case "play":
         try play(options)
     case "rediscover":
@@ -779,19 +812,19 @@ do {
         let app = try GameLauncher.makeBridge(for: entry, shimBinary: try shimBinary(), home: library.home)
         var game = entry.game
         game.bridge = app.path
-        try library.save(game, in: entry.root)
+        try library.save(game, in: entry.folder)
         print("Bridge: \(app.path)")
         if options.flags.contains("--default") { try await setDefault(app, schemes: game.schemes) }
     case "cover":
         let library = Library()
         let entry = try findGame(library, options.positional.first)
         if options.flags.contains("--reset") {
-            try CoverArt.remove(in: entry.root)
+            try CoverArt.remove(in: entry.folder)
             print("Cover: drawn from the icon")
         } else {
             guard options.positional.count == 2 else { throw CLIError("Pass an image, or --reset") }
-            try CoverArt.set(try Data(contentsOf: URL(fileURLWithPath: options.positional[1])), in: entry.root)
-            print("Cover: \(CoverArt.url(in: entry.root).path)")
+            try CoverArt.set(try Data(contentsOf: URL(fileURLWithPath: options.positional[1])), in: entry.folder)
+            print("Cover: \(CoverArt.url(in: entry.folder).path)")
         }
     case "diagnostics", "program-dll", "d3d11":
         let library = Library()

@@ -50,16 +50,42 @@ struct CoverGrid: View {
         .sheet(item: $controllerSettings) { entry in
             ControllerEditorView(entry: entry, library: library)
         }
-        .confirmationDialog("¿Mover \(trashCandidate?.game.name ?? "") a la Papelera?",
+        .confirmationDialog(trashCandidate?.game.store == nil ? "¿Mover \(trashCandidate?.game.name ?? "") a la Papelera?"
+                            : "¿Quitar \(trashCandidate?.game.name ?? "") de la biblioteca?",
                             isPresented: Binding(get: { trashCandidate != nil }, set: { if !$0 { trashCandidate = nil } }),
                             presenting: trashCandidate) { entry in
-            Button("Mover a la Papelera", role: .destructive) { library.moveToTrash(entry) }
-        } message: { _ in
-            Text("Se mueven a la Papelera la botella (con el juego y sus partidas locales) y su app puente. Puedes recuperarlas desde ahí.")
+            Button(entry.game.store == nil ? "Mover a la Papelera" : "Quitar de la biblioteca", role: .destructive) { library.moveToTrash(entry) }
+        } message: { entry in
+            Text(entry.game.store == nil
+                 ? "Se mueven a la Papelera la botella (con el juego y sus partidas locales) y su app puente. Puedes recuperarlas desde ahí."
+                 : "Se quitan su lugar en Riftway y su acceso directo. El juego sigue instalado en Steam.")
         }
     }
 
     @ViewBuilder private func menu(_ entry: LibraryEntry) -> some View {
+        if let store = entry.game.store { storeMenu(entry, store) } else { bottleMenu(entry) }
+    }
+
+    /// A launcher's game: nothing here touches the launcher's bottle.
+    @ViewBuilder private func storeMenu(_ entry: LibraryEntry, _ store: StoreLink) -> some View {
+        Button("Jugar") { library.play(entry) }
+        Button("Ver página del juego") { open(entry) }
+        Button("Abrir en Steam") { library.openStoreLink(store.pageLink, for: entry) }
+        if library.running.contains(entry.id) {
+            Button("Cerrar el juego") { library.stop(entry) }
+        }
+        Divider()
+        Button("Cambiar portada…") { library.chooseCover(entry) }
+        if library.covers[entry.id] != nil {
+            Button("Quitar portada") { library.removeCover(entry) }
+        }
+        Button("Reconstruir acceso directo") { library.rebuildBridge(entry) }
+        Divider()
+        Button("Desinstalar en Steam…") { library.openStoreLink(store.uninstallLink, for: entry) }
+        Button("Quitar de la biblioteca…", role: .destructive) { trashCandidate = entry }
+    }
+
+    @ViewBuilder private func bottleMenu(_ entry: LibraryEntry) -> some View {
         Button("Jugar") { library.play(entry) }
         Button("Ver página del juego") { open(entry) }
         let others = entry.game.programs.filter { $0.id != entry.game.primary?.id }

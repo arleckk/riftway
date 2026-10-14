@@ -29,6 +29,12 @@ public enum GameLauncher {
     }
 
     public static func action(for entry: LibraryEntry, program: DiscoveredProgram? = nil) throws -> Action {
+        // A launcher's game: the launcher starts it (DRM, cloud saves, overlay, Steam Input).
+        if program == nil, let store = entry.game.store {
+            guard let setup = entry.setup else { throw Failure.runtimeMissing(entry.record.runtimeVersion) }
+            let plan = try URLBridge(bottle: setup.bottle, schemes: [store.store.rawValue]).plan(forURL: store.playLink)
+            return .wine(plan, log: entry.record.options.diagnostics ? sessionLog(root: entry.root) : nil)
+        }
         if program == nil, let custom = entry.game.customLaunch {
             guard let setup = entry.setup else { throw Failure.runtimeMissing(entry.record.runtimeVersion) }
             let log = entry.record.options.diagnostics ? sessionLog(root: entry.root) : nil
@@ -124,7 +130,7 @@ public enum GameLauncher {
             try entry.secrets.delete(account: game.secretAccount)
         }
         game.customLaunch = custom
-        try library.save(game, in: entry.root)
+        try library.save(game, in: entry.folder)
         return game
     }
 
@@ -134,14 +140,20 @@ public enum GameLauncher {
     public static func makeBridge(for entry: LibraryEntry, shimBinary: URL, home: RiftwayHome = .standard) throws -> URL {
         guard let setup = entry.setup else { throw Failure.runtimeMissing(entry.record.runtimeVersion) }
         var config = ShimConfig(displayName: entry.game.name, bottle: setup.bottle, schemes: entry.game.schemes)
-        switch (entry.game.customLaunch, entry.game.primary?.target) {
-        case (.command(let path, let arguments)?, _), (_, .executable(let path, let arguments)?):
-            config.program = [path] + (arguments.map(WindowsCommandLine.split) ?? [])
-        case (_, .web(let url)?):
-            // A double-click opens the site; the site's Start sends the link.
-            config.webPage = url
-        case (_, nil):
-            break
+        if let store = entry.game.store {
+            // Claims no scheme (the launcher's bridge does); a double-click asks the launcher.
+            config.schemes = []
+            config.program = try URLBridge(bottle: setup.bottle, schemes: [store.store.rawValue]).windowsArguments(forURL: store.playLink)
+        } else {
+            switch (entry.game.customLaunch, entry.game.primary?.target) {
+            case (.command(let path, let arguments)?, _), (_, .executable(let path, let arguments)?):
+                config.program = [path] + (arguments.map(WindowsCommandLine.split) ?? [])
+            case (_, .web(let url)?):
+                // A double-click opens the site; the site's Start sends the link.
+                config.webPage = url
+            case (_, nil):
+                break
+            }
         }
         config.inputHelper = InputHelper.bundle(nextTo: shimBinary)?.path
         if case .link? = entry.game.customLaunch {

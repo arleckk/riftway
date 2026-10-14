@@ -50,6 +50,16 @@ final class LibraryModel {
     var requestedPage: String?
     /// An error to show in an alert.
     var problem: String?
+    /// Games a launcher installed that Riftway asks to add (PRD-04 R1.6).
+    var storeOffer: StoreOffer?
+    /// Ticks of the running watch, for the slower launcher check.
+    private var ticks = 0
+
+    struct StoreOffer: Identifiable {
+        let launcher: LibraryEntry
+        let games: [InstalledStoreGame]
+        var id: String { launcher.id + games.map(\.id).joined() }
+    }
 
     let library = Library()
     private let log = Log()
@@ -59,6 +69,7 @@ final class LibraryModel {
     /// after the installer (PRD-01 R5.2).
     func startWatching() {
         guard watcher == nil else { return }
+        checkStoreGames()
         watcher = Task { [weak self] in
             while !Task.isCancelled {
                 self?.refreshRunning()
@@ -69,12 +80,21 @@ final class LibraryModel {
 
     private func refreshRunning() {
         var now: Set<String> = []
+        var processes: [WindowsProcesses.Process]?
         for entry in entries where WineServer.isRunning(prefix: entry.root.appendingPathComponent("prefix")) {
+            // A launcher's game is open while a program of its folder runs,
+            // not whenever the launcher is.
+            if let store = entry.game.store {
+                if processes == nil { processes = WindowsProcesses.running() }
+                guard !WindowsProcesses.inFolder(store.installDir, among: processes ?? []).isEmpty else { continue }
+            }
             now.insert(entry.id)
             starting[entry.id] = nil
         }
-        // Wine takes a moment to start; give a launch 20 s to show up.
-        starting = starting.filter { Date().timeIntervalSince($0.value) < 20 }
+        // Wine takes a moment to start; a launcher may update first.
+        starting = starting.filter { id, since in
+            Date().timeIntervalSince(since) < (entries.first { $0.id == id }?.game.store == nil ? 20 : 90)
+        }
         now.formUnion(starting.keys)
         let closed = running.subtracting(now)
         if now != running { running = now }
@@ -83,14 +103,19 @@ final class LibraryModel {
         for id in closed {
             if let entry = entries.first(where: { $0.id == id }) { sessionEnded(entry) }
         }
+        // A launcher installs games while it is open: look every 30 s.
+        ticks += 1
+        if ticks % 15 == 0, entries.contains(where: { $0.game.store == nil && now.contains($0.id) }) { checkStoreGames() }
     }
 
     private func sessionEnded(_ entry: LibraryEntry) {
+        // A launcher's game: its launcher's bottle is the one that changes.
+        guard entry.game.store == nil else { return }
         let library = library
         let shim = shimBinary
         Task {
             let newSchemes: [String] = await Task.detached {
-                guard let (_, schemes) = try? library.rediscover(entry), var updated = library.entry(at: entry.root) else { return [] }
+                guard let (_, schemes) = try? library.rediscover(entry), var updated = library.current(entry) else { return [] }
                 // Launchers download the programs a profile matches on.
                 var profileChanged = false
                 if let applied = try? library.updateProfile(updated) {
@@ -104,6 +129,69 @@ final class LibraryModel {
             }.value
             if !newSchemes.isEmpty { log.write("app: \(entry.game.name) registered \(newSchemes.joined(separator: ", "))") }
             reload()
+            checkStoreGames()
+        }
+    }
+
+    // MARK: Launchers' games (PRD-04 R1.6)
+
+    /// Offers the games a launcher installed since (one launcher at a time),
+    /// and takes out of the library the ones it uninstalled.
+    func checkStoreGames() {
+        guard storeOffer == nil, job == nil else { return }
+        for launcher in entries where launcher.game.store == nil {
+            for gone in library.uninstalledStoreGames(in: launcher) {
+                log.write("app: \(gone.game.name) is no longer installed in \(launcher.game.name); leaving the library")
+                moveToTrash(gone)
+            }
+            let offered = library.offeredStoreGames(in: launcher)
+            if !offered.isEmpty {
+                storeOffer = StoreOffer(launcher: launcher, games: offered)
+                return
+            }
+        }
+    }
+
+    /// Adds the chosen games, each with its shortcut app; the rest are not offered again.
+    func answerStoreOffer(add chosen: [InstalledStoreGame]) {
+        guard let offer = storeOffer else { return }
+        storeOffer = nil
+        let declined = offer.games.filter { game in !chosen.contains { $0.id == game.id } }
+        do {
+            if !declined.isEmpty { try library.declineStoreGames(declined, launcher: offer.launcher) }
+            for game in chosen { try addStoreGame(game, launcher: offer.launcher) }
+        } catch {
+            problem = "\(error)"
+        }
+        reload()
+    }
+
+    /// Adds one game from the launcher's page (also one declined before).
+    func addStoreGame(_ installed: InstalledStoreGame, launcher: LibraryEntry) throws {
+        var entry = try library.addStoreGame(installed, launcher: launcher)
+        if let app = try? GameLauncher.makeBridge(for: entry, shimBinary: shimBinary, home: library.home) {
+            entry.game.bridge = app.path
+            try library.save(entry.game, in: entry.folder)
+        }
+        log.write("app: added \(installed.name) from \(launcher.game.name)")
+        reload()
+    }
+
+    /// The game's folder in the launcher's bottle, in Finder.
+    func showStoreFolder(_ entry: LibraryEntry) {
+        guard let store = entry.game.store, let setup = entry.setup,
+              let folder = setup.bottle.unixURL(forWindowsPath: store.installDir) else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([folder])
+    }
+
+    /// Opens one of the launcher's links (`steam://…`) in its bottle.
+    func openStoreLink(_ link: String, for entry: LibraryEntry) {
+        guard let store = entry.game.store, let setup = entry.setup else { return }
+        do {
+            let plan = try URLBridge(bottle: setup.bottle, schemes: [store.store.rawValue]).plan(forURL: link)
+            _ = try Launcher.start(plan)
+        } catch {
+            problem = "\(error)"
         }
     }
 
@@ -114,7 +202,7 @@ final class LibraryModel {
             if let data = GameLauncher.iconData(for: entry), let image = NSImage(data: data) { icons[entry.id] = image }
         }
         for entry in entries where palettes[entry.id] == nil {
-            if let data = CoverArt.data(in: entry.root), let image = NSImage(data: data) { covers[entry.id] = image }
+            if let data = CoverArt.data(in: entry.folder), let image = NSImage(data: data) { covers[entry.id] = image }
             palettes[entry.id] = covers[entry.id]?.coverPalette ?? icons[entry.id]?.coverPalette ?? .riftway
         }
     }
@@ -231,7 +319,7 @@ final class LibraryModel {
     func play(_ entry: LibraryEntry, program: DiscoveredProgram? = nil) {
         // From disk: the CLI may have changed it (what Play starts) since the
         // last reload, and saving the stale copy below would undo that.
-        let entry = library.entry(at: entry.root) ?? entry
+        let entry = library.current(entry) ?? entry
         do {
             switch try GameLauncher.action(for: entry, program: program) {
             case .openWebPage(let url):
@@ -239,13 +327,16 @@ final class LibraryModel {
             case .wine(let plan, let logFile):
                 let pid = try Launcher.start(plan, outputLog: logFile)
                 log.write("app: started \(entry.game.name) (pid \(pid))")
-                InputHelper.startIfNeeded(app: InputHelper.bundle(nextTo: shimBinary), bottleRoot: entry.root)
+                // Steam Input handles a launcher's games.
+                if entry.game.store == nil {
+                    InputHelper.startIfNeeded(app: InputHelper.bundle(nextTo: shimBinary), bottleRoot: entry.root)
+                }
                 starting[entry.id] = Date()
                 running.insert(entry.id)
             }
             var game = entry.game
             game.lastPlayed = Date()
-            try library.save(game, in: entry.root)
+            try library.save(game, in: entry.folder)
         } catch {
             problem = "\(error)"
         }
@@ -265,6 +356,13 @@ final class LibraryModel {
     }
 
     func stop(_ entry: LibraryEntry) {
+        // A launcher's game: only its own programs; the launcher stays open.
+        if let store = entry.game.store {
+            for process in WindowsProcesses.inFolder(store.installDir, among: WindowsProcesses.running()) {
+                kill(process.pid, SIGTERM)
+            }
+            return
+        }
         guard let setup = entry.setup else { return }
         Task.detached { try? setup.killAll() }
     }
@@ -274,7 +372,7 @@ final class LibraryModel {
     /// Makes an image the game's cover (dropped on it, or chosen).
     func setCover(_ entry: LibraryEntry, image: Data) {
         do {
-            try CoverArt.set(image, in: entry.root)
+            try CoverArt.set(image, in: entry.folder)
         } catch {
             problem = "\(error)"
             return
@@ -298,7 +396,7 @@ final class LibraryModel {
     /// Back to the cover drawn from the icon.
     func removeCover(_ entry: LibraryEntry) {
         do {
-            try CoverArt.remove(in: entry.root)
+            try CoverArt.remove(in: entry.folder)
         } catch {
             problem = "\(error.localizedDescription)"
         }
@@ -328,7 +426,7 @@ final class LibraryModel {
         change(&record.options)
         do {
             try library.save(record, in: entry.root)
-            if entry.game.bridge != nil, let updated = library.entry(at: entry.root) {
+            if entry.game.bridge != nil, let updated = library.current(entry) {
                 _ = try GameLauncher.makeBridge(for: updated, shimBinary: shimBinary, home: library.home)
             }
         } catch {
@@ -374,7 +472,7 @@ final class LibraryModel {
     /// Sets what Play starts; `link` (with its token) goes to the secret store.
     func setCustomLaunch(_ entry: LibraryEntry, _ custom: Game.CustomLaunch?, link: String?) throws {
         let game = try GameLauncher.setCustomLaunch(custom, link: link, for: entry, library: library)
-        if game.bridge != nil, let updated = library.entry(at: entry.root) {
+        if game.bridge != nil, let updated = library.current(entry) {
             _ = try? GameLauncher.makeBridge(for: updated, shimBinary: shimBinary, home: library.home)
         }
         reload()
@@ -409,7 +507,7 @@ final class LibraryModel {
             let app = try GameLauncher.makeBridge(for: entry, shimBinary: shimBinary, home: library.home)
             var game = entry.game
             game.bridge = app.path
-            try library.save(game, in: entry.root)
+            try library.save(game, in: entry.folder)
             NSWorkspace.shared.activateFileViewerSelecting([app])
         } catch {
             problem = "\(error)"
@@ -419,18 +517,19 @@ final class LibraryModel {
 
     /// Moves the game's bridge and bottle to the Trash (never deletes them).
     /// The bridge is unregistered after it moves (PRD-03: LaunchServices
-    /// re-indexes a bundle still in place).
+    /// re-indexes a bundle still in place). A launcher's game leaves only the
+    /// library: its own folder goes, the launcher's bottle and the game stay.
     func moveToTrash(_ entry: LibraryEntry) {
         let fm = FileManager.default
         do {
-            if let setup = entry.setup { try? setup.killAll() }
+            if entry.game.store == nil, let setup = entry.setup { try? setup.killAll() }
             if let bridge = entry.game.bridge.map({ URL(fileURLWithPath: $0) }), fm.fileExists(atPath: bridge.path) {
                 var trashed: NSURL?
                 try fm.trashItem(at: bridge, resultingItemURL: &trashed)
                 try? ShimBundle.unregister(bridge)
                 if let trashed = trashed as URL? { try? ShimBundle.unregister(trashed) }
             }
-            try fm.trashItem(at: entry.root, resultingItemURL: nil)
+            try fm.trashItem(at: entry.game.store == nil ? entry.root : entry.folder, resultingItemURL: nil)
             icons[entry.id] = nil
             covers[entry.id] = nil
             palettes[entry.id] = nil

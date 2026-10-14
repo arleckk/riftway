@@ -25,6 +25,8 @@ public struct Game: Codable, Sendable, Equatable, Identifiable {
     public var customLaunch: CustomLaunch?
     /// Anti-cheats found in the bottle (nil in libraries from before M4).
     public var anticheat: [AntiCheatFinding]?
+    /// A game a launcher installed in this bottle (Steam): Play goes through it.
+    public var store: StoreLink?
 
     /// A Play button the player configured.
     public enum CustomLaunch: Codable, Sendable, Equatable {
@@ -91,7 +93,11 @@ public struct Game: Codable, Sendable, Equatable, Identifiable {
 /// A game and its bottle, as the library lists them.
 public struct LibraryEntry: Sendable, Equatable, Identifiable {
     public var game: Game
+    /// The bottle: prefix, `bottle.json`, logs, controller setup.
     public var root: URL
+    /// The game's own files (`game.json`, its cover): the bottle itself, or
+    /// `<bottle>/Games/<id>` for a game its launcher installed there.
+    public var folder: URL
     public var record: BottleRecord
     /// The runtime the bottle uses, when it is installed.
     public var runtime: WineRuntime?
@@ -105,7 +111,8 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
     /// Whether Play has something to start: a program, a launch link or a
     /// command, and the runtime it needs.
     public var canPlay: Bool {
-        !((game.primary == nil && game.customLaunch == nil)
+        if game.store != nil { return runtime != nil }
+        return !((game.primary == nil && game.customLaunch == nil)
           || (runtime == nil && (game.customLaunch != nil || game.primary?.windowsPath != nil)))
     }
 
@@ -133,6 +140,10 @@ public struct Library: Sendable {
     }
 
     static let gameFile = "game.json"
+    /// Games a launcher installed in a bottle: `<bottle>/Games/<id>/game.json`.
+    public static let storeGamesFolder = "Games"
+    /// Store games the player chose not to add (`<bottle>/Games/declined.json`).
+    static let declinedFile = "declined.json"
     static let recordFile = "bottle.json"
     public static let baselineFile = "baseline.json"
 
@@ -152,22 +163,123 @@ public struct Library: Sendable {
     public func entries() -> [LibraryEntry] {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: home.bottles.path) else { return [] }
-        return names.sorted().compactMap { entry(at: home.bottles.appendingPathComponent($0, isDirectory: true)) }
-            .sorted { ($0.game.lastPlayed ?? $0.game.added) > ($1.game.lastPlayed ?? $1.game.added) }
+        return names.sorted().flatMap { name -> [LibraryEntry] in
+            let root = home.bottles.appendingPathComponent(name, isDirectory: true)
+            guard let main = entry(at: root) else { return [] }
+            return [main] + storeEntries(in: root)
+        }
+        .sorted { ($0.game.lastPlayed ?? $0.game.added) > ($1.game.lastPlayed ?? $1.game.added) }
     }
 
-    public func entry(at root: URL) -> LibraryEntry? {
-        guard let gameData = try? Data(contentsOf: root.appendingPathComponent(Self.gameFile)),
+    /// The bottle's own game (`<bottle>/game.json`), or with `folder` one of
+    /// the games its launcher installed there.
+    public func entry(at root: URL, folder: URL? = nil) -> LibraryEntry? {
+        let folder = folder ?? root
+        guard let gameData = try? Data(contentsOf: folder.appendingPathComponent(Self.gameFile)),
               let game = try? Self.decoder.decode(Game.self, from: gameData),
               let recordData = try? Data(contentsOf: root.appendingPathComponent(Self.recordFile)),
               let record = try? Self.decoder.decode(BottleRecord.self, from: recordData)
         else { return nil }
-        return LibraryEntry(game: game, root: root, record: record, runtime: home.runtime(version: record.runtimeVersion)?.runtime,
-                            profile: record.profile.flatMap(profiles.profile(id:)))
+        // A store game is not the launcher: the bottle's profile is the launcher's.
+        let profile = game.store == nil ? record.profile.flatMap(profiles.profile(id:)) : nil
+        return LibraryEntry(game: game, root: root, folder: folder, record: record,
+                            runtime: home.runtime(version: record.runtimeVersion)?.runtime, profile: profile)
     }
 
-    public func save(_ game: Game, in root: URL) throws {
-        try Self.encoder.encode(game).write(to: root.appendingPathComponent(Self.gameFile), options: .atomic)
+    /// The entry as saved now (it may have changed since `entry` was read).
+    public func current(_ entry: LibraryEntry) -> LibraryEntry? {
+        self.entry(at: entry.root, folder: entry.folder)
+    }
+
+    public func save(_ game: Game, in folder: URL) throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Self.encoder.encode(game).write(to: folder.appendingPathComponent(Self.gameFile), options: .atomic)
+    }
+
+    // MARK: Games a launcher installed (PRD-04 R1.6)
+
+    func storeEntries(in root: URL) -> [LibraryEntry] {
+        let games = root.appendingPathComponent(Self.storeGamesFolder, isDirectory: true)
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: games.path) else { return [] }
+        return names.sorted().compactMap { name in
+            let folder = games.appendingPathComponent(name, isDirectory: true)
+            guard let entry = entry(at: root, folder: folder), entry.game.store != nil else { return nil }
+            return entry
+        }
+    }
+
+    /// The games the bottle's launcher has installed that are neither in the
+    /// library nor declined: what Riftway offers to add.
+    public func offeredStoreGames(in launcher: LibraryEntry) -> [InstalledStoreGame] {
+        guard launcher.game.store == nil else { return [] }
+        let prefix = launcher.root.appendingPathComponent("prefix")
+        guard SteamLibrary.isSteamBottle(prefix: prefix) else { return [] }
+        let linked = Set(storeEntries(in: launcher.root).compactMap { $0.game.store?.gameID })
+        let declined = declinedStoreGames(in: launcher.root)
+        return SteamLibrary.installed(prefix: prefix).filter { !linked.contains($0.id) && !declined.contains($0.id) }
+    }
+
+    /// Every game the launcher has installed, added or not (for the launcher's page).
+    public func installedStoreGames(in launcher: LibraryEntry) -> [InstalledStoreGame] {
+        let prefix = launcher.root.appendingPathComponent("prefix")
+        guard launcher.game.store == nil, SteamLibrary.isSteamBottle(prefix: prefix) else { return [] }
+        return SteamLibrary.installed(prefix: prefix)
+    }
+
+    /// Adds a game its launcher installed: its own entry in the bottle, the
+    /// launcher's cover, its program (for the icon) and its anti-cheats.
+    @discardableResult
+    public func addStoreGame(_ installed: InstalledStoreGame, launcher: LibraryEntry) throws -> LibraryEntry {
+        let folder = launcher.root.appendingPathComponent(Self.storeGamesFolder, isDirectory: true)
+            .appendingPathComponent(installed.id, isDirectory: true)
+        let prefix = launcher.root.appendingPathComponent("prefix")
+        var game = Game(id: installed.id, name: installed.name, publisher: nil)
+        game.store = installed.link
+        if let program = SteamLibrary.mainProgram(installed.link, prefix: prefix) {
+            game.primary = DiscoveredProgram(name: installed.name, target: .executable(path: program, arguments: nil))
+            game.programs = [game.primary!]
+        }
+        if let folder = SteamLibrary.bottle(prefix).unixURL(forWindowsPath: installed.link.installDir),
+           let walker = FileManager.default.enumerator(atPath: folder.path) {
+            var files: [String] = []
+            while let file = walker.nextObject() as? String { files.append(file) }
+            game.anticheat = AntiCheatDetector.scan(files: files)
+        }
+        try save(game, in: folder)
+        if let cover = installed.cover, let data = try? Data(contentsOf: cover) { try? CoverArt.set(data, in: folder) }
+        var declined = declinedStoreGames(in: launcher.root)
+        if declined.remove(installed.id) != nil { try writeDeclined(declined, in: launcher.root) }
+        guard let entry = entry(at: launcher.root, folder: folder) else { throw CocoaError(.fileReadCorruptFile) }
+        return entry
+    }
+
+    /// "Not now": Riftway does not offer the game again (the launcher's page still lists it).
+    public func declineStoreGames(_ games: [InstalledStoreGame], launcher: LibraryEntry) throws {
+        try writeDeclined(declinedStoreGames(in: launcher.root).union(games.map(\.id)), in: launcher.root)
+    }
+
+    /// Store games the launcher uninstalled: their library folder is there
+    /// but their manifest is not (a disconnected drive removes nothing).
+    public func uninstalledStoreGames(in launcher: LibraryEntry) -> [LibraryEntry] {
+        let prefix = launcher.root.appendingPathComponent("prefix")
+        guard launcher.game.store == nil, SteamLibrary.isSteamBottle(prefix: prefix) else { return [] }
+        let installed = Set(SteamLibrary.installed(prefix: prefix).map(\.id))
+        return storeEntries(in: launcher.root).filter { entry in
+            guard let store = entry.game.store, !installed.contains(entry.id) else { return false }
+            return SteamLibrary.libraryIsPresent(for: store, prefix: prefix)
+        }
+    }
+
+    func declinedStoreGames(in root: URL) -> Set<String> {
+        let file = root.appendingPathComponent(Self.storeGamesFolder).appendingPathComponent(Self.declinedFile)
+        guard let data = try? Data(contentsOf: file), let ids = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+        return Set(ids)
+    }
+
+    private func writeDeclined(_ ids: Set<String>, in root: URL) throws {
+        let folder = root.appendingPathComponent(Self.storeGamesFolder, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Self.encoder.encode(ids.sorted()).write(to: folder.appendingPathComponent(Self.declinedFile), options: .atomic)
     }
 
     public func save(_ record: BottleRecord, in root: URL) throws {
@@ -183,10 +295,10 @@ public struct Library: Sendable {
                                                product: entry.game.installer?.product ?? entry.game.name)
         // The game as saved now, not as `entry` read it when the session
         // started: what Play starts may have changed meanwhile.
-        var game = self.entry(at: entry.root)?.game ?? entry.game
+        var game = current(entry)?.game ?? entry.game
         let before = Set(game.schemes)
         game.merge(result)
-        try save(game, in: entry.root)
+        try save(game, in: entry.folder)
         return (game, game.schemes.filter { !before.contains($0) })
     }
 

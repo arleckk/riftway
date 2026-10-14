@@ -41,12 +41,14 @@ struct GamePage: View {
                         .pickerStyle(.segmented)
                         .labelsHidden()
                         .fixedSize()
-                        switch tab {
-                        case .summary: SummaryTab(entry: entry)
-                        case .controls: ControlsTab(entry: entry, edit: { controllerSettings = true })
-                        case .compatibility: CompatibilityTab(entry: entry, library: library)
-                        case .advanced: AdvancedTab(entry: entry, library: library, playSettings: { playSettings = true },
-                                                    trash: { confirmTrash = true })
+                        switch (tab, entry.game.store) {
+                        case (.summary, let store?): StoreSummaryTab(entry: entry, store: store)
+                        case (.summary, nil): SummaryTab(entry: entry, library: library)
+                        case (.controls, let store?): StoreControlsTab(entry: entry, store: store, library: library)
+                        case (.controls, nil): ControlsTab(entry: entry, edit: { controllerSettings = true })
+                        case (.compatibility, _): CompatibilityTab(entry: entry, library: library)
+                        case (.advanced, _): AdvancedTab(entry: entry, library: library, playSettings: { playSettings = true },
+                                                         trash: { confirmTrash = true })
                         }
                     }
                     .padding(24)
@@ -68,13 +70,16 @@ struct GamePage: View {
             }
             .sheet(isPresented: $playSettings) { PlaySettingsView(entry: entry, library: library) }
             .sheet(isPresented: $controllerSettings) { ControllerEditorView(entry: entry, library: library) }
-            .confirmationDialog("¿Mover \(entry.game.name) a la Papelera?", isPresented: $confirmTrash) {
-                Button("Mover a la Papelera", role: .destructive) {
+            .confirmationDialog(entry.game.store == nil ? "¿Mover \(entry.game.name) a la Papelera?" : "¿Quitar \(entry.game.name) de la biblioteca?",
+                                isPresented: $confirmTrash) {
+                Button(entry.game.store == nil ? "Mover a la Papelera" : "Quitar de la biblioteca", role: .destructive) {
                     close()
                     library.moveToTrash(entry)
                 }
             } message: {
-                Text("Se mueven a la Papelera la botella (con el juego y sus partidas locales) y su app puente. Puedes recuperarlas desde ahí.")
+                Text(entry.game.store == nil
+                     ? "Se mueven a la Papelera la botella (con el juego y sus partidas locales) y su app puente. Puedes recuperarlas desde ahí."
+                     : "Se quitan su lugar en Riftway y su acceso directo. El juego sigue instalado en Steam.")
             }
         } else {
             ContentUnavailableView("Este juego ya no está en la biblioteca", systemImage: "questionmark.folder")
@@ -121,9 +126,14 @@ private struct GameHeader: View {
                             .disabled(!entry.canPlay)
                             .keyboardShortcut(.defaultAction)
                     }
-                    Button(action: controls) { Label("Control", systemImage: "gamecontroller") }
-                        .buttonStyle(.bordered).controlSize(.large).tint(.white)
-                    let others = entry.game.programs.filter { $0.id != entry.game.primary?.id }
+                    if let store = entry.game.store {
+                        Button { library.openStoreLink(store.pageLink, for: entry) } label: { Label("Abrir en Steam", systemImage: "arrow.up.forward.app") }
+                            .buttonStyle(.bordered).controlSize(.large).tint(.white)
+                    } else {
+                        Button(action: controls) { Label("Control", systemImage: "gamecontroller") }
+                            .buttonStyle(.bordered).controlSize(.large).tint(.white)
+                    }
+                    let others = entry.game.store == nil ? entry.game.programs.filter { $0.id != entry.game.primary?.id } : []
                     if !others.isEmpty {
                         Menu {
                             ForEach(others) { program in Button(program.name) { library.play(entry, program: program) } }
@@ -225,6 +235,7 @@ private struct Block<Content: View>: View {
 
 private struct SummaryTab: View {
     let entry: LibraryEntry
+    @Bindable var library: LibraryModel
 
     var body: some View {
         let options = entry.setup?.effectiveOptions ?? entry.record.options
@@ -248,6 +259,7 @@ private struct SummaryTab: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            StoreGamesBlock(launcher: entry, library: library)
         }
     }
 
@@ -324,6 +336,10 @@ private struct CompatibilityTab: View {
         let isOpen = library.running.contains(entry.id)
         VStack(alignment: .leading, spacing: 18) {
             CompatibilityNotice(compatibility: entry.compatibility, installed: true)
+            if entry.game.store != nil {
+                Text("Los perfiles de Riftway ajustan la botella, y esta es la de Steam: su perfil está en la página de Steam.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else {
             Block(title: "Perfil") {
                 if let profile = entry.profile {
                     FactGrid(facts: [
@@ -344,8 +360,9 @@ private struct CompatibilityTab: View {
                 }
                 if isOpen { Text("Cierra el juego para cambiar su perfil.").font(.caption).foregroundStyle(.secondary) }
             }
+            }
             if !entry.compatibility.anticheat.isEmpty {
-                Block(title: "Anti-cheat encontrado en la botella") {
+                Block(title: entry.game.store == nil ? "Anti-cheat encontrado en la botella" : "Anti-cheat encontrado en su carpeta") {
                     ForEach(Array(entry.compatibility.anticheat.enumerated()), id: \.offset) { _, finding in
                         Label(ReportText.anticheat(finding), systemImage: "shield.lefthalf.filled").font(.callout)
                     }
@@ -362,6 +379,45 @@ private struct AdvancedTab: View {
     let trash: () -> Void
 
     var body: some View {
+        if let store = entry.game.store { storeBody(store) } else { bottleBody }
+    }
+
+    /// A launcher's game: its bottle's settings are the launcher's.
+    private func storeBody(_ store: StoreLink) -> some View {
+        VStack(alignment: .leading, spacing: 22) {
+            coverBlock
+            Block(title: "Archivos") {
+                HStack {
+                    Button("Mostrar la carpeta del juego") { library.showStoreFolder(entry) }
+                    Button("Reconstruir acceso directo") { library.rebuildBridge(entry) }
+                }
+                Text("El modo diagnóstico, Direct3D y lo demás de Wine se ajustan en la página de Steam: es su botella.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Block(title: "Quitar") {
+                HStack {
+                    Button("Desinstalar en Steam…") { library.openStoreLink(store.uninstallLink, for: entry) }
+                    Button("Quitar de la biblioteca…", role: .destructive, action: trash)
+                }
+                Text("Steam pide confirmar antes de desinstalar. Al desinstalarlo ahí, también sale de Riftway.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var coverBlock: some View {
+        Block(title: "Portada") {
+            HStack {
+                Button("Elegir imagen…") { library.chooseCover(entry) }
+                Button("Quitar portada") { library.removeCover(entry) }
+                    .disabled(library.covers[entry.id] == nil)
+            }
+            Text("También puedes arrastrar una imagen sobre la portada. Se ve mejor vertical (2:3); los colores de la página salen de ella.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var bottleBody: some View {
         VStack(alignment: .leading, spacing: 22) {
             Block(title: "Ejecución") {
                 Toggle("Modo diagnóstico: cada sesión deja un log de Wine", isOn: Binding(
@@ -378,15 +434,7 @@ private struct AdvancedTab: View {
                 Button("Configurar Jugar…", action: playSettings)
             }
             .disabled(library.running.contains(entry.id))
-            Block(title: "Portada") {
-                HStack {
-                    Button("Elegir imagen…") { library.chooseCover(entry) }
-                    Button("Quitar portada") { library.removeCover(entry) }
-                        .disabled(library.covers[entry.id] == nil)
-                }
-                Text("También puedes arrastrar una imagen sobre la portada. Se ve mejor vertical (2:3); los colores de la página salen de ella.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
+            coverBlock
             Block(title: "Archivos") {
                 HStack {
                     Button("Abrir disco C:") { library.showDriveC(entry) }
@@ -406,5 +454,99 @@ private struct AdvancedTab: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+// MARK: Launchers' games (PRD-04 R1.6)
+
+/// A Steam game's summary: where it is and that Steam starts it.
+private struct StoreSummaryTab: View {
+    let entry: LibraryEntry
+    let store: StoreLink
+
+    var body: some View {
+        FactGrid(facts: [
+            Fact(label: "Jugar abre", value: "Steam", detail: "Con su protección, la nube, el overlay y los logros"),
+            Fact(label: "Instalado en", value: URL(fileURLWithPath: store.installDir.replacingOccurrences(of: "\\", with: "/")).lastPathComponent,
+                 detail: store.installDir),
+            Fact(label: "Control", value: "Steam Input", detail: "La configuración de Steam para este juego"),
+            Fact(label: "ID de Steam", value: store.appID),
+            Fact(label: "Runtime", value: entry.record.runtimeVersion, detail: "El de la botella de Steam"),
+        ])
+    }
+}
+
+/// Steam Input drives a Steam game's controller; Riftway stays out of it.
+private struct StoreControlsTab: View {
+    let entry: LibraryEntry
+    let store: StoreLink
+    @Bindable var library: LibraryModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Steam Input se encarga del control", systemImage: "gamecontroller.fill").font(.headline)
+            Text("En los juegos de Steam, el control llega a Steam y Steam lo traduce para el juego, con la configuración que tenga en Steam (la oficial, la de la comunidad o la tuya). Riftway no le agrega nada.")
+                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Button("Configurar el control en Steam") { library.openStoreLink("steam://controllerconfig/\(store.appID)", for: entry) }
+                .controlSize(.large)
+        }
+    }
+}
+
+/// On a launcher's page: the games it installed, and the way to add the
+/// ones not in the library (also those declined before).
+private struct StoreGamesBlock: View {
+    let launcher: LibraryEntry
+    @Bindable var library: LibraryModel
+    @State private var installed: [InstalledStoreGame] = []
+
+    var body: some View {
+        Group {
+            if !installed.isEmpty {
+                Block(title: "Juegos de \(launcher.game.name)") {
+                    VStack(spacing: 0) {
+                        ForEach(installed) { game in
+                            HStack(spacing: 12) {
+                                StoreCoverThumbnail(url: game.cover).frame(width: 32)
+                                Text(game.name)
+                                Spacer()
+                                if library.entries.contains(where: { $0.id == game.id }) {
+                                    Text("En la biblioteca").foregroundStyle(.secondary)
+                                } else {
+                                    Button("Agregar a la biblioteca") {
+                                        do { try library.addStoreGame(game, launcher: launcher) } catch { library.problem = "\(error)" }
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 8)
+                            if game.id != installed.last?.id { Divider() }
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.card))
+                }
+            }
+        }
+        .task(id: launcher.id) {
+            let library = library.library, launcher = launcher
+            installed = await Task.detached { library.installedStoreGames(in: launcher) }.value
+        }
+    }
+}
+
+/// A launcher's cover from its cache, small.
+struct StoreCoverThumbnail: View {
+    let url: URL?
+
+    var body: some View {
+        Group {
+            if let url, let image = NSImage(contentsOf: url) {
+                Image(nsImage: image).resizable().aspectRatio(2 / 3, contentMode: .fill)
+            } else {
+                Rectangle().fill(Theme.card)
+            }
+        }
+        .aspectRatio(2 / 3, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
 }

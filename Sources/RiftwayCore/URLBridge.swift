@@ -52,11 +52,15 @@ public struct URLBridge: Sendable {
     }
 
     public func plan(forURL url: String) throws(BridgeError) -> LaunchPlan {
+        try bottle.launchPlan(windowsArguments: windowsArguments(forURL: url), environment: environment)
+    }
+
+    /// The Windows command line the bottle runs for `url` (its registered command).
+    public func windowsArguments(forURL url: String) throws(BridgeError) -> [String] {
         let scheme: String
         do { scheme = try IncomingURL.validate(url, schemes: schemes) } catch { throw .invalidURL(error) }
         let registration = try registration(for: scheme)
-        let args = WindowsCommandLine.expand(template: registration.command, argument: url) + extraArguments
-        return try bottle.launchPlan(windowsArguments: args, environment: environment)
+        return WindowsCommandLine.expand(template: registration.command, argument: url) + extraArguments
     }
 
     /// Opens the protocol's program without a URL, for a double-click on the shim.

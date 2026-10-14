@@ -93,6 +93,10 @@ struct LibraryView: View {
         .sheet(isPresented: $updates.showsSheet) {
             UpdateView(updates: updates, library: library)
         }
+        .sheet(item: $library.storeOffer) { offer in
+            StoreOfferView(offer: offer) { library.answerStoreOffer(add: $0) }
+                .interactiveDismissDisabled()
+        }
         .sheet(isPresented: $model.showsAssociationOffer) {
             AssociationOfferView { model.associationOfferAnswered(accept: $0) }
         }
