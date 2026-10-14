@@ -750,8 +750,8 @@ struct SettingsView: View {
                     Text("Riftway en pantalla completa, para jugar desde el sillón solo con el control.")
                 }
                 Toggle(isOn: $couch.homeButtonOpens) {
-                    Text("Abrir con el botón PS / Home")
-                    Text("Mientras Riftway está al frente. Apagado, el botón abre la app Juegos de macOS. Sal con ○ / B o Esc.")
+                    Text("Cambiar al modo sillón con el botón PS / Home")
+                    Text("Mientras Riftway está al frente, el botón entra y sale del modo sillón. Apagado, abre la app Juegos de macOS.")
                 }
             } header: {
                 Text("Modo sillón")

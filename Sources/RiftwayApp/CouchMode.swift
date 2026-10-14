@@ -34,7 +34,7 @@ final class CouchMode {
     var selection = 0
     private(set) var optionsOpen = false
     private(set) var optionIndex = 0
-    /// Whether Home opens the couch mode (or, off, the Games app as usual).
+    /// Whether Home switches to and from the couch mode (or, off, opens the Games app as usual).
     var homeButtonOpens = UserDefaults.standard.object(forKey: CouchMode.homeButtonKey) as? Bool ?? true {
         didSet {
             UserDefaults.standard.set(homeButtonOpens, forKey: Self.homeButtonKey)
