@@ -3,7 +3,8 @@
  *   movie_probe.exe reader  NV12|RGB32 C:\path\movie.mp4   source reader, video only
  *   movie_probe.exe session NV12|RGB32 C:\path\movie.mp4   media session: source -> sample grabber
  *   movie_probe.exe d3d11   NV12|RGB32 C:\path\movie.mp4   source reader decoding into D3D11 textures
- *   movie_probe.exe mft     NV12       -                    H.264 decoder given a D3D11 device
+ *   movie_probe.exe mft     NV12       C:\path\movie.h264  H.264 decoder by CLSID, given a D3D11 device,
+ *                                                           fed a raw Annex-B stream (Electra's path)
  *
  * The session mode is WmfMedia's path (a topology from the source's video stream to a
  * sample grabber sink that asks for an uncompressed subtype, Media Foundation inserting
@@ -94,29 +95,130 @@ static HRESULT make_manager(IMFDXGIDeviceManager **manager, UINT *nv12) {
     return IMFDXGIDeviceManager_ResetDevice(*manager, (IUnknown *)device, token);
 }
 
-static int mft_mode(void) {
+/* CLSID_MSH264DecoderMFT, the decoder Electra creates directly (msmpeg2vdec). */
+static const GUID clsid_h264_decoder = {0x62ce7e72, 0x4c71, 0x4d20, {0xb1, 0x5d, 0x45, 0x28, 0x31, 0xa8, 0x7d, 0x9d}};
+
+/* Sets the decoder's output to NV12 from the types it offers. */
+static HRESULT set_nv12_output(IMFTransform *transform) {
+    HRESULT hr;
+    IMFMediaType *type = NULL;
+    for (DWORD i = 0; SUCCEEDED(hr = IMFTransform_GetOutputAvailableType(transform, 0, i, &type)); i++) {
+        GUID subtype;
+        IMFMediaType_GetGUID(type, &MF_MT_SUBTYPE, &subtype);
+        if (IsEqualGUID(&subtype, &MFVideoFormat_NV12)) {
+            hr = IMFTransform_SetOutputType(transform, 0, type, 0);
+            IMFMediaType_Release(type);
+            return hr;
+        }
+        IMFMediaType_Release(type);
+    }
+    return hr;
+}
+
+/* Decodes a raw Annex-B H.264 file with an H.264 decoder whose D3D manager was offered. */
+static int mft_raw(IMFTransform *transform, const WCHAR *path, UINT32 aware, HRESULT set, UINT nv12) {
+    HRESULT hr;
+    IMFMediaType *input = NULL;
+    MFCreateMediaType(&input);
+    IMFMediaType_SetGUID(input, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
+    IMFMediaType_SetGUID(input, &MF_MT_SUBTYPE, &MFVideoFormat_H264);
+    IMFMediaType_SetUINT64(input, &MF_MT_FRAME_SIZE, ((UINT64)1920 << 32) | 1080);
+    if (FAILED(hr = IMFTransform_SetInputType(transform, 0, input, 0))) return fail("SetInputType", hr);
+    if (FAILED(hr = set_nv12_output(transform))) return fail("SetOutputType", hr);
+    IMFTransform_ProcessMessage(transform, MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
+    IMFTransform_ProcessMessage(transform, MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
+
+    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (file == INVALID_HANDLE_VALUE) return fail("CreateFile", HRESULT_FROM_WIN32(GetLastError()));
+    MFT_OUTPUT_STREAM_INFO info = {0};
+    IMFTransform_GetOutputStreamInfo(transform, 0, &info);
+    BOOL provides = !!(info.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES);
+    int frames = 0, inputs = 0, changes = 0;
+    HRESULT output_failed = S_OK;
+    BYTE chunk[65536];
+    DWORD got = 0;
+    while (frames < 30 && ReadFile(file, chunk, sizeof(chunk), &got, NULL) && got) {
+        IMFMediaBuffer *buffer = NULL;
+        IMFSample *sample = NULL;
+        BYTE *data;
+        MFCreateMemoryBuffer(got, &buffer);
+        IMFMediaBuffer_Lock(buffer, &data, NULL, NULL);
+        memcpy(data, chunk, got);
+        IMFMediaBuffer_Unlock(buffer);
+        IMFMediaBuffer_SetCurrentLength(buffer, got);
+        MFCreateSample(&sample);
+        IMFSample_AddBuffer(sample, buffer);
+        IMFSample_SetSampleTime(sample, (LONGLONG)inputs * 333333);
+        IMFMediaBuffer_Release(buffer);
+        while ((hr = IMFTransform_ProcessInput(transform, 0, sample, 0)) == MF_E_NOTACCEPTING) {
+            MFT_OUTPUT_DATA_BUFFER out = {0};
+            DWORD status = 0;
+            if (!provides) {
+                IMFMediaBuffer *b = NULL;
+                MFCreateSample(&out.pSample);
+                MFCreateMemoryBuffer(info.cbSize, &b);
+                IMFSample_AddBuffer(out.pSample, b);
+                IMFMediaBuffer_Release(b);
+            }
+            HRESULT o = IMFTransform_ProcessOutput(transform, 0, 1, &out, &status);
+            if (o == MF_E_TRANSFORM_STREAM_CHANGE) { changes++; set_nv12_output(transform); IMFTransform_GetOutputStreamInfo(transform, 0, &info); }
+            else if (SUCCEEDED(o)) frames++;
+            else if (o != MF_E_TRANSFORM_NEED_MORE_INPUT) { output_failed = o; }
+            if (out.pSample) IMFSample_Release(out.pSample);
+            if (out.pEvents) IMFCollection_Release(out.pEvents);
+            if (FAILED(output_failed)) break;
+        }
+        IMFSample_Release(sample);
+        inputs++;
+        if (FAILED(hr) || FAILED(output_failed)) break;
+        for (;;) {
+            MFT_OUTPUT_DATA_BUFFER out = {0};
+            DWORD status = 0;
+            if (!provides) {
+                IMFMediaBuffer *b = NULL;
+                MFCreateSample(&out.pSample);
+                MFCreateMemoryBuffer(info.cbSize, &b);
+                IMFSample_AddBuffer(out.pSample, b);
+                IMFMediaBuffer_Release(b);
+            }
+            HRESULT o = IMFTransform_ProcessOutput(transform, 0, 1, &out, &status);
+            if (out.pSample) IMFSample_Release(out.pSample);
+            if (out.pEvents) IMFCollection_Release(out.pEvents);
+            if (o == MF_E_TRANSFORM_STREAM_CHANGE) { changes++; set_nv12_output(transform); IMFTransform_GetOutputStreamInfo(transform, 0, &info); continue; }
+            if (SUCCEEDED(o)) { frames++; continue; }
+            if (o != MF_E_TRANSFORM_NEED_MORE_INPUT) output_failed = o;
+            break;
+        }
+        if (FAILED(output_failed)) break;
+    }
+    CloseHandle(file);
+    printf("{\"mode\": \"mft\", \"d3d11_aware\": %u, \"set_d3d_manager\": \"0x%08lx\", \"inputs\": %d, \"stream_changes\": %d, "
+           "\"frames\": %d, \"input_failed\": \"0x%08lx\", \"output_failed\": \"0x%08lx\", \"nv12_support\": \"0x%x\", \"ok\": %s}\n",
+           aware, (unsigned long)set, inputs, changes, frames, (unsigned long)(FAILED(hr) ? hr : S_OK),
+           (unsigned long)output_failed, nv12, frames > 0 ? "true" : "false");
+    fflush(stdout);
+    return frames > 0 ? 0 : 2;
+}
+
+/* The decoder as Electra drives it: created by CLSID, offered the game's device, then fed
+ * a raw Annex-B H.264 stream by hand (ffmpeg -i movie.mp4 -c:v copy -bsf:v h264_mp4toannexb
+ * -f h264 movie.h264; the samples of an MP4 are length-prefixed, which Electra converts). */
+static int mft_mode(const WCHAR *path) {
     IMFDXGIDeviceManager *manager = NULL;
     UINT nv12 = 0;
     HRESULT hr;
+    size_t length = wcslen(path);
+    if (length <= 5 || _wcsicmp(path + length - 5, L".h264")) return fail("mft takes a raw .h264 file", E_INVALIDARG);
     if (FAILED(hr = make_manager(&manager, &nv12))) return fail("device manager", hr);
-    MFT_REGISTER_TYPE_INFO input = {MFMediaType_Video, MFVideoFormat_H264};
-    IMFActivate **activates = NULL;
-    UINT32 count = 0;
-    if (FAILED(hr = MFTEnumEx(MFT_CATEGORY_VIDEO_DECODER, MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_SORTANDFILTER,
-                              &input, NULL, &activates, &count)) || !count)
-        return fail("MFTEnumEx", hr);
     IMFTransform *transform = NULL;
-    if (FAILED(hr = IMFActivate_ActivateObject(activates[0], &IID_IMFTransform, (void **)&transform)))
-        return fail("ActivateObject", hr);
+    if (FAILED(hr = CoCreateInstance(&clsid_h264_decoder, NULL, CLSCTX_INPROC_SERVER, &IID_IMFTransform, (void **)&transform)))
+        return fail("CoCreateInstance", hr);
     IMFAttributes *attributes = NULL;
     UINT32 aware = 0;
     if (SUCCEEDED(IMFTransform_GetAttributes(transform, &attributes)))
         IMFAttributes_GetUINT32(attributes, &MF_SA_D3D11_AWARE, &aware);
-    hr = IMFTransform_ProcessMessage(transform, MFT_MESSAGE_SET_D3D_MANAGER, (ULONG_PTR)manager);
-    printf("{\"mode\": \"mft\", \"d3d11_aware\": %u, \"set_d3d_manager\": \"0x%08lx\", \"nv12_support\": \"0x%x\", "
-           "\"ok\": %s}\n", aware, (unsigned long)hr, nv12, SUCCEEDED(hr) == !!(nv12 & D3D11_FORMAT_SUPPORT_TEXTURE2D) ? "true" : "false");
-    fflush(stdout);
-    return 0;
+    HRESULT set = aware ? IMFTransform_ProcessMessage(transform, MFT_MESSAGE_SET_D3D_MANAGER, (ULONG_PTR)manager) : E_NOTIMPL;
+    return mft_raw(transform, path, aware, set, nv12);
 }
 
 static int reader_mode(const WCHAR *url, const GUID *subtype, BOOL d3d11) {
@@ -280,7 +382,7 @@ int wmain(int argc, wchar_t **argv) {
     HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
     if (FAILED(hr)) return fail("CoInitializeEx", hr);
     if (FAILED(hr = MFStartup(MF_VERSION, 0))) return fail("MFStartup", hr);
-    int result = !wcscmp(argv[1], L"mft") ? mft_mode()
+    int result = !wcscmp(argv[1], L"mft") ? mft_mode(argv[3])
                  : !wcscmp(argv[1], L"session") ? session_mode(argv[3], subtype)
                  : reader_mode(argv[3], subtype, !wcscmp(argv[1], L"d3d11"));
     MFShutdown();

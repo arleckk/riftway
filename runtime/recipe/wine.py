@@ -63,6 +63,8 @@ RIFTWAY_PATCHES = [
     ('wine-dll-path-first.patch', 'd153905289e808cd66493e1af1e3bfba86f76d5f7cd090142407f63c28a402a8'),
     # Video in memory when the D3D11 device has no NV12 textures (DXMT; UE5 videos).
     ('wine-video-memory-fallback.patch', 'd7b4ef223779db0b7c4c0c6d19782816ca2070bff675c3e4e5a9c64950abc223'),
+    # On macOS the H.264 decoder lists NV12 last instead of hiding it (CrossOver HACK 26265; UE5 videos).
+    ('wine-h264-nv12-last.patch', '5c52448169650528df37397eb03d391baecbaacf5aeade8372cf25ccd4e22d39'),
 ]
 # A string each patch adds, checked in the patched tree: a patch that silently did not
 # apply fails the build instead of shipping without it.
@@ -78,6 +80,7 @@ APPLIED = {
     'wine-mshtml-readystate-detached.patch': ('dlls/mshtml/persist.c', 'is_main_content_window(window) && window->browser->doc'),
     'wine-dll-path-first.patch': ('dlls/ntdll/unix/loader.c', 'WINEDLLPATH_FIRST'),
     'wine-video-memory-fallback.patch': ('dlls/mfreadwrite/reader.c', 'delivering them in memory'),
+    'wine-h264-nv12-last.patch': ('dlls/winegstreamer/video_decoder.c', 'Offering NV12 output format last'),
 }
 BUILD_PATH = '/build/riftway'
 # PE modules carry this date instead of the build's (runtime/sources.lock.json).

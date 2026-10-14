@@ -128,6 +128,19 @@ tengan alguna. `rw-0.1.4-spike` se desinstaló; ninguna botella lo usaba.
    firma de `media-wine-build`, porque un árbol extraído de nuevo conserva las fechas del
    archivo.
 
+   **Con eso no bastó** (DSR siguió sin video en `rw-0.1.8-spike`): el cliente carga
+   `msmpeg2vdec` y crea el decodificador H.264 por su CLSID, como Electra. Las fuentes de
+   CrossOver traen el "CW HACK 26265", que en macOS **salta NV12** al enumerar los tipos de
+   salida del decodificador (`GetOutputAvailableType`), aunque `SetOutputType` lo acepta.
+   Electra busca NV12 en esa lista y, sin él, no reproduce nada; las pruebas anteriores
+   pasaban porque piden NV12 directamente. El modo `mft` de `movie_probe` (decodificador por
+   CLSID, el dispositivo DXMT, `login.mp4` en Annex-B a mano y búsqueda de NV12) lo
+   reproduce: en `rw-0.1.7`/`rw-0.1.8` no encuentra NV12 (`MF_E_NO_MORE_TYPES`); en
+   `rw-0.1.9-spike` decodifica (32 cuadros de 25 bloques de 64 KB). El parche
+   `runtime/patches/wine-h264-nv12-last.patch` (`rw-0.1.9-spike`) ofrece NV12 al final en
+   vez de esconderlo: los programas que toman el primer tipo siguen recibiendo YV12, como
+   quería el hack, y Electra encuentra NV12.
+
 ---
 
 ## 1. Entradas fijadas y herramientas

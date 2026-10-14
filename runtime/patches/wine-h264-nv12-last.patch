@@ -1,0 +1,47 @@
+winegstreamer: offer NV12 last on macOS instead of hiding it.
+
+CrossOver's HACK 26265 skips NV12 when the H.264 decoder lists its output
+types on macOS (and returns its next type twice). Unreal Engine 5's Electra
+player creates the decoder itself and looks for NV12 among the offered types;
+finding none, it plays no video: the Digimon SuperRumble server select
+background (Content/Movies/login.mp4). The decoder now lists NV12 last, so
+programs that take the first type still get YV12 and Electra finds NV12.
+
+Riftway, offered under LGPL-2.1-or-later like Wine.
+
+--- a/dlls/winegstreamer/video_decoder.c
++++ b/dlls/winegstreamer/video_decoder.c
+@@ -606,14 +606,26 @@
+     if (index >= decoder->output_type_count)
+         return MF_E_NO_MORE_TYPES;
+ 
+-    /* CW HACK 26265 */
+-    if (is_macos() && IsEqualGUID(decoder->output_types[index], &MFVideoFormat_NV12))
+-    {
+-        WARN("Skipping NV12 output format\n");
+-        index++;
++    /* CW HACK 26265, Riftway: on macOS NV12 is offered last instead of not at all.
++     * Programs that take the first type still get another one, and programs that
++     * look for NV12 (Unreal Engine 5's Electra player) still find it. */
++    if (is_macos())
++    {
++        DWORD nv12;
+ 
+-        if (index >= decoder->output_type_count)
+-            return MF_E_NO_MORE_TYPES;
++        for (nv12 = 0; nv12 < decoder->output_type_count; ++nv12)
++            if (IsEqualGUID(decoder->output_types[nv12], &MFVideoFormat_NV12))
++                break;
++        if (nv12 < decoder->output_type_count)
++        {
++            if (index == decoder->output_type_count - 1)
++            {
++                TRACE("Offering NV12 output format last\n");
++                index = nv12;
++            }
++            else if (index >= nv12)
++                index++;
++        }
+     }
+ 
+     return create_output_media_type(decoder, decoder->output_types[index], NULL, type);
