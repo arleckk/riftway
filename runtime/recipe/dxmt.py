@@ -75,9 +75,15 @@ def build(work, tools, jobs):
 
     env = os.environ.copy()
     env.pop('DESTDIR', None)
+    # PE modules carry the pinned date instead of the build's.
+    env['SOURCE_DATE_EPOCH'] = str(json.loads((ROOT / 'runtime/sources.lock.json').read_text())['source_date_epoch']['value'])
     env['PATH'] = ':'.join([str(tools / 'llvm-mingw-20251216-ucrt-macos-universal/bin'), str(tools / 'python/bin'),
                             '/usr/bin', '/bin', '/usr/sbin', '/sbin'])
     meson = tools / 'python/bin/meson'
+    # meson does not relink when only the date changes: a tree built with another starts over.
+    stamp = builddir / '.riftway-source-date-epoch'
+    if builddir.exists() and not (stamp.exists() and stamp.read_text() == env['SOURCE_DATE_EPOCH']):
+        shutil.rmtree(builddir)
     setup = [meson, 'setup', builddir, source, '--cross-file', source / 'build-win64.txt', '--buildtype=release',
              '--prefix', install, '--strip', '-Dnative_llvm_path=' + str(tools / 'clang+llvm-15.0.7-x86_64-apple-darwin21.0'),
              '-Dwine_build_path=' + str(work / 'wine-build'), '-Denable_tests=false', '-Denable_nvapi=false',
@@ -85,6 +91,7 @@ def build(work, tools, jobs):
     if (builddir / 'meson-private/coredata.dat').exists():
         setup.append('--reconfigure')
     run(*setup, env=env)
+    stamp.write_text(env['SOURCE_DATE_EPOCH'])
     run(meson, 'compile', '-C', builddir, '-j', jobs, env=env)
     # A fresh install, so modules of an earlier build (NVAPI, NGX) never linger.
     shutil.rmtree(install, ignore_errors=True)

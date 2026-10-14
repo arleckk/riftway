@@ -32,7 +32,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / 'work/runtime'
-PHASE2 = WORK / 'phase-2'
+# Another workspace (RIFTWAY_PHASE2=…/phase-2), to check that two clean builds match.
+PHASE2 = Path(os.environ.get('RIFTWAY_PHASE2') or WORK / 'phase-2').resolve()
 TOOLS = WORK / 'toolchains'
 MINGW = TOOLS / 'llvm-mingw-20251216-ucrt-macos-universal'
 SOJU = '3a350b32bf906dd2a509b18c642a5a2676de022a'
@@ -97,6 +98,29 @@ def links(p):
 def rpaths(p):
     text = subprocess.check_output(['otool', '-l', str(p)], text=True)
     return re.findall(r'cmd LC_RPATH\n\s+cmdsize \d+\n\s+path (.*?) \(offset', text)
+
+
+def normalize_uuid(p):
+    """Sets a thin 64-bit Mach-O file's LC_UUID to a name-based UUID of its content
+    (signature removed, LC_UUID zeroed), so the same code gets the same UUID."""
+    data = p.read_bytes()
+    if data[:4] != b'\xcf\xfa\xed\xfe':
+        return  # universal (MoltenVK's prebuilt library): left as shipped upstream
+    if b'\xfa\xde\x0c\xc0' in data:
+        run('codesign', '--remove-signature', p, stderr=subprocess.DEVNULL)
+        data = p.read_bytes()
+    offset = 32
+    for _ in range(int.from_bytes(data[16:20], 'little')):
+        command, size = int.from_bytes(data[offset:offset + 4], 'little'), int.from_bytes(data[offset + 4:offset + 8], 'little')
+        if command == 0x1b:  # LC_UUID
+            at = offset + 8
+            zeroed = data[:at] + bytes(16) + data[at + 16:]
+            uuid = bytearray(hashlib.sha256(zeroed).digest()[:16])
+            uuid[6] = (uuid[6] & 0x0f) | 0x50
+            uuid[8] = (uuid[8] & 0x3f) | 0x80
+            p.write_bytes(data[:at] + bytes(uuid) + data[at + 16:])
+            return
+        offset += size
 
 
 def copy(source, target):
@@ -287,6 +311,11 @@ def assemble(version, identity):
         for path in desired:
             if path not in old:
                 run('install_name_tool', '-add_rpath', path, p, stderr=subprocess.DEVNULL)
+
+    # The linker derives LC_UUID from the output before strip, when it still names the
+    # objects' paths, so it changes with the workspace; derive it from what ships instead.
+    for p in native:
+        normalize_uuid(p)
 
     # No build machine path may ship (the pinned llvm-mingw's public CI path is known).
     private = [value.encode(encoding) for value in (str(ROOT), str(WORK), '/opt/homebrew/')

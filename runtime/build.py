@@ -38,7 +38,8 @@ WORK = ROOT / 'work/runtime'
 TOOLS = WORK / 'toolchains'
 DOWNLOADS = WORK / 'downloads'
 RECALL = WORK / 'recall'
-PHASE2 = WORK / 'phase-2'
+# Another workspace (RIFTWAY_PHASE2=…/phase-2), to check that two clean builds match.
+PHASE2 = Path(os.environ.get('RIFTWAY_PHASE2') or WORK / 'phase-2').resolve()
 CLT_SDK = Path('/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk')
 
 

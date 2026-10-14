@@ -6,6 +6,10 @@
     "commit": "17bb9255e326ee00a7349c1278aaefa5d8fd4e0c",
     "license": "Apache-2.0"
   },
+  "source_date_epoch": {
+    "value": 1790812800,
+    "note": "2026-10-01T00:00:00Z. SOURCE_DATE_EPOCH for every build: lld writes it as the PE TimeDateStamp of Wine's and DXMT's modules (header and export table) instead of the build time."
+  },
   "toolchains": {
     "llvm-mingw": {
       "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-macos-universal.tar.xz",
@@ -47,7 +51,9 @@
     "No MetalFX: DXMT without dxmt-metalfx-upscaling.patch and with -Denable_nvapi=false -Denable_nvngx=false, so no NVAPI, NGX or D3D12 stand-in and no self-signed nvngx.dll; DXMT's diagnostic programs are not installed.",
     "Binaries map the build workspace to /build/riftway (Recall: /build/overwatch-2-mac).",
     "The --jobs limit of Recall's native dependency script is raised from 4 to 32 in the local clone; it changes build parallelism only, not outputs.",
-    "Wine's winegstreamer (Recall builds --without-gstreamer) is built by runtime/media.py in a second Wine tree from the same patched source, against GLib and GStreamer from crossover-sources-26.3.0; decoders are macOS's (applemedia), no FFmpeg."
+    "Wine's winegstreamer (Recall builds --without-gstreamer) is built by runtime/media.py in a second Wine tree from the same patched source, against GLib and GStreamer from crossover-sources-26.3.0; decoders are macOS's (applemedia), no FFmpeg.",
+    "GStreamer is configured with -Dbuild-tools-source=system (bison from the toolchain, built from source) instead of downloading a prebuilt bison during configure; pcre2 stays static without JIT, as that branch set.",
+    "Reproducible: SOURCE_DATE_EPOCH (source_date_epoch) fixes the PE TimeDateStamp of every module, and runtime/assemble.py derives each Mach-O's LC_UUID from its shipped content."
   ],
   "media": {
     "note": "GLib 2.78.0 and GStreamer 1.24.4 come from crossover-sources-26.3.0 (already pinned by the Wine build). These are the GLib subprojects it fetches; runtime/media.py builds with --wrap-mode=nodownload.",

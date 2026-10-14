@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Estado | **Fases 0 y 1 completadas el 2026-10-13** (ver "Resultados de la fase 1"); fase 2 en curso: receta propia en `runtime/recipe/`; `rw-0.1.5-spike` es el primero con todos los parches |
+| Estado | **Fases 0 y 1 completadas el 2026-10-13** (ver "Resultados de la fase 1"); fase 2 en curso: receta propia en `runtime/recipe/`; `rw-0.1.5-spike` es el primero con todos los parches; `rw-0.1.7-spike` es reproducible |
 | Hito | M2 ([PRD-02](prd/PRD-02-runtime-y-botellas.md)) |
 | Referencia | Recall (`github.com/AsherJN/recall`), clon de solo lectura revisado el 2026-10-13 |
 
@@ -83,7 +83,27 @@ tengan alguna. `rw-0.1.4-spike` se desinstaló; ninguna botella lo usaba.
    macOS activar Game Mode con un juego en pantalla completa.
 4. Decidir la convivencia DXMT/wined3d para D3D11 de 64 bits (sección 4.3).
 5. ✅ Prefix-map `/build/riftway` en Wine, FreeType, DXMT y winegstreamer.
-6. Dos compilaciones limpias con el mismo manifiesto (reproducibilidad).
+6. ✅ Reproducibilidad (2026-10-14, `rw-0.1.7-spike`): el workspace principal y uno limpio en
+   otra ruta (`RIFTWAY_PHASE2=…/phase-2`: dependencias, Wine, DXMT y media desde cero) dan
+   **los mismos 4,935 archivos, byte por byte**. Lo que hubo que fijar:
+   - **Fecha de los PE**: lld escribía la hora del build en el `TimeDateStamp` del encabezado
+     y de la tabla de exportaciones de cada módulo de Wine y DXMT. Ahora todos los builds
+     llevan `SOURCE_DATE_EPOCH` (2026-10-01, `source_date_epoch` en el lock) y lo incluyen en
+     su firma de configuración, porque ni make ni meson vuelven a enlazar si solo cambia.
+   - **`LC_UUID` de los Mach-O**: ld lo calcula antes del `strip`, cuando la salida todavía
+     nombra las rutas de los objetos, así que cambiaba con el workspace. `assemble.py` lo
+     recalcula del contenido que se distribuye (`normalize_uuid`, UUID por nombre del
+     SHA-256 con el campo en ceros y sin firma).
+   - **bison de GStreamer**: con `build-tools-source=subproject` (el valor por defecto en
+     macOS), el `configure` descargaba un bison precompilado de gstreamer.freedesktop.org con
+     la verificación TLS apagada, y ese espejo ya no responde. `media.py` usa
+     `-Dbuild-tools-source=system` (el bison 3.8.2 del toolchain, compilado desde código) y
+     conserva lo demás de esa rama: pcre2 estático y sin JIT.
+   - `media.py` mapea las rutas desde el padre del workspace, como las demás recetas.
+
+   Pendiente: comparar con un build en otra Mac (CI). Un fallo del linker bajo Rosetta
+   (segfault al enlazar `gst-device-monitor`, una herramienta que no se distribuye) se fue al
+   reintentar; `build.py` no reintenta solo.
 7. ✅ Revisión de licencia del código de Soju (2026-10-14, ver "Licencia del código de Soju"):
    se quita `ncrypt-persisted-keys.patch` (GPL-3.0) desde `rw-0.1.3-spike`.
 8. ✅ Decodificadores de video y audio (`runtime/build.py media`, desde `rw-0.1.2-spike`):

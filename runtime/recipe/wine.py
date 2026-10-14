@@ -71,6 +71,8 @@ APPLIED = {
     'wine-game-mode-app.patch': ('dlls/ntdll/unix/loader.c', 'WINE_GAME_MODE_APP'),
 }
 BUILD_PATH = '/build/riftway'
+# PE modules carry this date instead of the build's (runtime/sources.lock.json).
+SOURCE_DATE_EPOCH = str(json.loads((ROOT / 'runtime/sources.lock.json').read_text())['source_date_epoch']['value'])
 CONFIGURATION = 'riftway-wine-1'
 
 
@@ -173,6 +175,7 @@ def build(work, tools, jobs):
     env['PATH'] = ':'.join([str(tools / 'bison/bin'), str(tools / 'llvm-mingw-20251216-ucrt-macos-universal/bin'),
                             '/usr/bin', '/bin', '/usr/sbin', '/sbin'])
     env['MACOSX_DEPLOYMENT_TARGET'] = '26.0'
+    env['SOURCE_DATE_EPOCH'] = SOURCE_DATE_EPOCH
     flags = '-O2 -g0 -ffile-prefix-map=' + str(work) + '=' + BUILD_PATH
     logdir = work / 'build-logs'
     logdir.mkdir(exist_ok=True)
@@ -194,7 +197,7 @@ def build(work, tools, jobs):
 
     builddir = work / 'wine-build'
     configuration = builddir / '.riftway-configuration'
-    signature = CONFIGURATION + '\n' + flags + '\n' + (work / 'sources/wine-patches.json').read_text()
+    signature = CONFIGURATION + '\n' + flags + '\n' + SOURCE_DATE_EPOCH + '\n' + (work / 'sources/wine-patches.json').read_text()
     if builddir.exists() and not (configuration.exists() and configuration.read_text() == signature):
         print('Wine build tree from other patches or flags: building from scratch', flush=True)
         shutil.rmtree(builddir)
@@ -245,7 +248,7 @@ def build(work, tools, jobs):
               'inputs': {n: {'url': v[0], 'sha256': v[1]} for n, v in INPUTS.items()},
               'recall_patches': dict(PATCHES), 'riftway_patches': dict(RIFTWAY_PATCHES), 'soju_patches': [],
               'gnutls_header_sha256': sha(clean / 'include/gnutls/gnutls.h'),
-              'build_path': BUILD_PATH, 'minimum_macos': '26.0',
+              'build_path': BUILD_PATH, 'source_date_epoch': SOURCE_DATE_EPOCH, 'minimum_macos': '26.0',
               'without_gstreamer': True, 'with_vulkan': True, 'with_sdl2': True,
               'native_linker_header_padding': '0x1000'}
     (work / 'wine-build-proof.json').write_text(json.dumps(record, indent=2) + '\n')

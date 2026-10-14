@@ -38,7 +38,8 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = json.loads((ROOT / 'runtime/sources.lock.json').read_text())
 WORK = ROOT / 'work/runtime'
-PHASE2 = WORK / 'phase-2'
+# Another workspace (RIFTWAY_PHASE2=…/phase-2), to check that two clean builds match.
+PHASE2 = Path(os.environ.get('RIFTWAY_PHASE2') or WORK / 'phase-2').resolve()
 TOOLS = WORK / 'toolchains'
 PY86 = TOOLS / 'python-x86_64'
 SDK = '/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk'
@@ -48,7 +49,7 @@ PREFIX = '/riftway-media'
 SRC = PHASE2 / 'media-src'
 BUILD = PHASE2 / 'media-build'
 STAGE = PHASE2 / 'media-stage'
-FLAGS = '-O2 -g0 -ffile-prefix-map=' + str(WORK) + '=/build/riftway'
+FLAGS = '-O2 -g0 -ffile-prefix-map=' + str(PHASE2.parent) + '=/build/riftway'
 
 
 def sha(path):
@@ -77,6 +78,7 @@ def environment():
         'DEVELOPER_DIR': '/Library/Developer/CommandLineTools',
         'SDKROOT': SDK,
         'MACOSX_DEPLOYMENT_TARGET': '26.0',
+        'SOURCE_DATE_EPOCH': str(LOCK['source_date_epoch']['value']),
         'CC': '/usr/bin/clang -arch x86_64', 'CXX': '/usr/bin/clang++ -arch x86_64',
         'OBJC': '/usr/bin/clang -arch x86_64', 'OBJCXX': '/usr/bin/clang++ -arch x86_64',
         'CFLAGS': FLAGS, 'CXXFLAGS': FLAGS, 'OBJCFLAGS': FLAGS, 'OBJCXXFLAGS': FLAGS,
@@ -155,6 +157,10 @@ def sources():
 # feeds the decoders: demuxers for MP4/QuickTime and MPEG streams, parsers.
 OPTIONS = [
     '--wrap-mode=nodownload', '--buildtype=release', '-Ddefault_library=shared',
+    # Build tools from the toolchain (bison 3.8.2, built from source), not the
+    # prebuilt bison GStreamer downloads during configure (TLS checks off, and its
+    # mirror is gone). That branch also made pcre2 static without JIT: kept here.
+    '-Dbuild-tools-source=system', '-Dpcre2:default_library=static', '-Dpcre2:jit=disabled',
     '-Dprefix=' + PREFIX, '-Dlibdir=lib',
     '-Dauto_features=disabled',
     '-Dbase=enabled', '-Dgood=enabled', '-Dbad=enabled',
@@ -194,8 +200,12 @@ OPTIONS = [
 def gstreamer(tree, env, jobs):
     log = PHASE2 / 'build-logs/media.log'
     log.parent.mkdir(exist_ok=True)
+    configured = BUILD / '.riftway-options'
+    if BUILD.exists() and not (configured.exists() and configured.read_text() == '\n'.join(OPTIONS)):
+        shutil.rmtree(BUILD)
     if not (BUILD / 'build.ninja').exists():
         run(x86(PY86 / 'bin/meson', 'setup', BUILD, tree, *OPTIONS), log=log, env=env)
+        configured.write_text('\n'.join(OPTIONS))
     run(x86(PY86 / 'bin/ninja', '-C', BUILD, '-j', str(jobs)), log=log, env=env)
     if STAGE.exists():
         shutil.rmtree(STAGE)
@@ -220,9 +230,9 @@ def winegstreamer(env, jobs):
     wenv = {'PATH': ':'.join([str(TOOLS / 'bison/bin'), str(TOOLS / 'llvm-mingw-20251216-ucrt-macos-universal/bin'),
                               '/usr/bin', '/bin', '/usr/sbin', '/sbin']),
             'HOME': os.environ['HOME'], 'DEVELOPER_DIR': env['DEVELOPER_DIR'], 'SDKROOT': SDK,
-            'MACOSX_DEPLOYMENT_TARGET': '26.0'}
+            'MACOSX_DEPLOYMENT_TARGET': '26.0', 'SOURCE_DATE_EPOCH': str(LOCK['source_date_epoch']['value'])}
     configured = tree / '.riftway-media-configuration'
-    signature = gst_cflags + '\n' + gst_libs + '\n' + wine_flags + '\n'
+    signature = gst_cflags + '\n' + gst_libs + '\n' + wine_flags + '\n' + wenv['SOURCE_DATE_EPOCH'] + '\n'
     if tree.exists() and not (configured.exists() and configured.read_text() == signature):
         shutil.rmtree(tree)
     tree.mkdir(exist_ok=True)
