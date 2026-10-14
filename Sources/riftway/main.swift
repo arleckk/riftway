@@ -70,9 +70,11 @@ Profiles and compatibility (profiles/ in the app, plus <home>/Profiles):
       Look for anti-cheats in a folder (a game's or a bottle's drive_c).
 
 Controllers (PRD-08; keys and mouse need the Riftway Input helper):
-  riftway controller <game> [--program EXE (--mode native|desktop|keyboard|off | --import FILE.vdf)]
+  riftway controller <game> [--program EXE (--mode native|desktop|keyboard|off | --import FILE.vdf |
+                             --pointer leftStick,rightStick,touchpad|none)]
       Show the game's controller setup, or set a program's mode; --import reads
-      a Steam Input configuration (controller_*.vdf) as that program's keyboard mode.
+      a Steam Input configuration (controller_*.vdf) as that program's keyboard mode;
+      --pointer sets what moves the mouse in its keyboard mode.
   riftway controller-import <file.vdf>
       Show what Riftway would take from a Steam Input configuration.
 
@@ -92,7 +94,7 @@ struct Options {
     static let valued: Set<String> = ["--bottle", "--prefix", "--wine", "--name", "--scheme", "--arg", "--icon", "--output",
                                       "--runtime", "--at", "--timeout", "--debug", "--app-dpi", "--mouselook", "--env",
                                       "--baseline-from", "--installer-arg", "--runtime-version", "--program-dll", "--command", "--args", "--feed", "--app",
-                                      "--staged", "--target", "--pid", "--program", "--mode", "--import"]
+                                      "--staged", "--target", "--pid", "--program", "--mode", "--import", "--pointer"]
     /// Everything after `--`, passed through untouched.
     var passthrough: [String] = []
 
@@ -775,12 +777,23 @@ do {
                 let result = try SteamInputImport.parse(try String(contentsOf: url, encoding: .utf8), name: url.lastPathComponent)
                 layout.programs[program] = ProgramControls(mode: .keyboard, actionSet: result.actionSet)
                 for item in result.skipped { print("skipped:  \(item)") }
+            } else if let list = options.one("--pointer") {
+                guard var controls = layout.programs[program], var set = controls.actionSet else {
+                    throw CLIError("\(program) has no keyboard mapping yet (use --import first)")
+                }
+                let sources = list == "none" ? [] : try list.split(separator: ",").map { name -> PointerSource in
+                    guard let source = PointerSource(rawValue: String(name)) else { throw CLIError("Unknown pointer source \(name)") }
+                    return source
+                }
+                set.pointer = sources
+                controls.actionSet = set
+                layout.programs[program] = controls
             } else if let mode = options.one("--mode").flatMap(InputMode.init(rawValue:)) {
                 var controls = layout.programs[program] ?? ProgramControls(mode: mode)
                 controls.mode = mode
                 layout.programs[program] = controls
             } else {
-                throw CLIError("Pass --mode native|desktop|keyboard|off or --import FILE.vdf")
+                throw CLIError("Pass --mode native|desktop|keyboard|off, --import FILE.vdf or --pointer SOURCES")
             }
             try layout.write(bottle: entry.root)
             print("Saved \(entry.root.appendingPathComponent(ControllerLayout.fileName).path)")

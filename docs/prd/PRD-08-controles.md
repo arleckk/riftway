@@ -155,8 +155,11 @@ como las demás opciones.
 3. ✅ `Riftway Input` con `desktop` y `keyboard`, detección del programa al frente y
    permiso de Accesibilidad. Probado con un DualShock 4 en `ISIDE.exe` (corpus): las
    teclas llegan a Wine, el touchpad mueve el cursor y el ayudante se cierra al terminar
-   la sesión. DSR configurado: launcher en `desktop`, cliente con el mapeo de Steam Input
-   del jugador; falta jugarlo así.
+   la sesión. **DSR jugado con control (2026-10-14)**: launcher en `desktop`, cliente con
+   el mapeo de Steam Input del jugador (cruceta = habilidades del Digimon 1 `Q W E R`;
+   L1 + cruceta, Digimon 2 `A S D F`; R1 + cruceta, Digimon 3 `Z X C V`; caras con
+   L1/R1 = `1`–`4`), más el stick derecho como mouse para la cámara
+   (`--pointer touchpad,rightStick`).
 4. Editor de mapeos en la app y la sección `controller` de los perfiles.
 5. Capa 1 (remapeo de SDL) y la opción de PlayStation crudo.
 
