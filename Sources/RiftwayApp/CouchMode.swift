@@ -332,7 +332,7 @@ private struct CouchRow: View {
                     ForEach(Array(games.enumerated()), id: \.element.id) { index, entry in
                         let isSelected = index == min(mode.selection, games.count - 1)
                         GameCover(name: entry.game.name, icon: mode.library.icons[entry.id],
-                                  palette: mode.library.palettes[entry.id] ?? .riftway)
+                                  palette: mode.library.palettes[entry.id] ?? .riftway, art: mode.library.covers[entry.id])
                             .frame(width: isSelected ? 190 : 150)
                             .overlay {
                                 RoundedRectangle(cornerRadius: 12, style: .continuous)

@@ -20,6 +20,7 @@ clic, se ajustan por juego y se diagnostican sin abrir Terminal.
 | R1.2 | Estados por juego: listo, corriendo, actualizando (el launcher está abierto), disco desconectado, roto (falta el programa principal). |
 | R1.3 | Menú por juego: Jugar, abrir otro programa de la botella, Ajustes, Abrir carpeta, Desinstalar juego (ejecuta su `UninstallString`), Mover botella a la Papelera. |
 | R1.4 | Vacía: invita a arrastrar un instalador o a elegir uno. |
+| R1.5 | Portada propia: una imagen arrastrada sobre la portada (o elegida desde el menú del juego o su pestaña Avanzado) reemplaza la que Riftway dibuja con el ícono, y sus colores tiñen la página del juego y el modo sillón. Riftway guarda una copia en la botella (`cover.png`, máx. 1200 px); quitarla vuelve a la dibujada. CLI: `riftway cover <juego> <imagen> \| --reset`. |
 
 ### Lanzamiento
 

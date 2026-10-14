@@ -58,6 +58,9 @@ Library (~/Library/Application Support/Riftway, or $RIFTWAY_HOME):
       What Play starts. --link: the last link the game's site sent to the bridge
       (remembered automatically), or one pasted on standard input (never as an
       argument); links are kept in <home>/Secrets, outside every bottle.
+  riftway cover <game> <image> | --reset
+      The game's own cover (PNG, JPEG, HEIC, WebP…; Riftway keeps a copy in the
+      bottle), or back to the one drawn from its icon.
   riftway diagnostics <game> on|off
       Diagnostic mode: Wine's errors and DLL loads in the bottle's logs/session-*.log.
   riftway d3d11 <game> dxmt|wined3d|profile
@@ -757,6 +760,17 @@ do {
         try library.save(game, in: entry.root)
         print("Bridge: \(app.path)")
         if options.flags.contains("--default") { try await setDefault(app, schemes: game.schemes) }
+    case "cover":
+        let library = Library()
+        let entry = try findGame(library, options.positional.first)
+        if options.flags.contains("--reset") {
+            try CoverArt.remove(in: entry.root)
+            print("Cover: drawn from the icon")
+        } else {
+            guard options.positional.count == 2 else { throw CLIError("Pass an image, or --reset") }
+            try CoverArt.set(try Data(contentsOf: URL(fileURLWithPath: options.positional[1])), in: entry.root)
+            print("Cover: \(CoverArt.url(in: entry.root).path)")
+        }
     case "diagnostics", "program-dll", "d3d11":
         let library = Library()
         let entry = try findGame(library, options.positional.first)

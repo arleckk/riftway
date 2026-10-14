@@ -1,6 +1,7 @@
 import AppKit
 import Observation
 import RiftwayCore
+import UniformTypeIdentifiers
 
 /// One installation, from the Install button to the result screen.
 @MainActor @Observable
@@ -37,7 +38,10 @@ final class LibraryModel {
     private var starting: [String: Date] = [:]
     private var watcher: Task<Void, Never>?
     private(set) var icons: [String: NSImage] = [:]
-    /// Each game's generated cover, from its icon (Riftway's own without one).
+    /// The games with a cover of their own (an image the player chose).
+    private(set) var covers: [String: NSImage] = [:]
+    /// Each game's colors: from its own cover, else its icon (Riftway's own
+    /// without either), for the generated cover, its page and the couch mode.
     private(set) var palettes: [String: CoverPalette] = [:]
     /// When each open game was first seen open, for its session time.
     private(set) var runningSince: [String: Date] = [:]
@@ -110,7 +114,8 @@ final class LibraryModel {
             if let data = GameLauncher.iconData(for: entry), let image = NSImage(data: data) { icons[entry.id] = image }
         }
         for entry in entries where palettes[entry.id] == nil {
-            palettes[entry.id] = icons[entry.id]?.coverPalette ?? .riftway
+            if let data = CoverArt.data(in: entry.root), let image = NSImage(data: data) { covers[entry.id] = image }
+            palettes[entry.id] = covers[entry.id]?.coverPalette ?? icons[entry.id]?.coverPalette ?? .riftway
         }
     }
 
@@ -261,6 +266,48 @@ final class LibraryModel {
         Task.detached { try? setup.killAll() }
     }
 
+    // MARK: Covers
+
+    /// Makes an image the game's cover (dropped on it, or chosen).
+    func setCover(_ entry: LibraryEntry, image: Data) {
+        do {
+            try CoverArt.set(image, in: entry.root)
+        } catch {
+            problem = "\(error)"
+            return
+        }
+        refreshCover(entry)
+    }
+
+    func chooseCover(_ entry: LibraryEntry) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.message = "Elige una imagen para la portada de \(entry.game.name). Se ve mejor vertical (2:3)."
+        panel.prompt = "Usar como portada"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            setCover(entry, image: try Data(contentsOf: url))
+        } catch {
+            problem = "\(error.localizedDescription)"
+        }
+    }
+
+    /// Back to the cover drawn from the icon.
+    func removeCover(_ entry: LibraryEntry) {
+        do {
+            try CoverArt.remove(in: entry.root)
+        } catch {
+            problem = "\(error.localizedDescription)"
+        }
+        refreshCover(entry)
+    }
+
+    private func refreshCover(_ entry: LibraryEntry) {
+        covers[entry.id] = nil
+        palettes[entry.id] = nil
+        reload()
+    }
+
     // MARK: Settings and housekeeping
 
     func setDiagnostics(_ entry: LibraryEntry, _ on: Bool) {
@@ -382,6 +429,7 @@ final class LibraryModel {
             }
             try fm.trashItem(at: entry.root, resultingItemURL: nil)
             icons[entry.id] = nil
+            covers[entry.id] = nil
             palettes[entry.id] = nil
         } catch {
             problem = "\(error)"

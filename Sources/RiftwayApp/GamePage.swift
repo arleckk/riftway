@@ -94,7 +94,8 @@ private struct GameHeader: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 20) {
-            GameCover(name: entry.game.name, icon: library.icons[entry.id], palette: palette)
+            GameCover(name: entry.game.name, icon: library.icons[entry.id], palette: palette, art: library.covers[entry.id])
+                .coverDrop { library.setCover(entry, image: $0) }
                 .frame(width: 120)
                 .shadow(color: .black.opacity(0.3), radius: 10, y: 5)
             VStack(alignment: .leading, spacing: 8) {
@@ -377,6 +378,15 @@ private struct AdvancedTab: View {
                 Button("Configurar Jugar…", action: playSettings)
             }
             .disabled(library.running.contains(entry.id))
+            Block(title: "Portada") {
+                HStack {
+                    Button("Elegir imagen…") { library.chooseCover(entry) }
+                    Button("Quitar portada") { library.removeCover(entry) }
+                        .disabled(library.covers[entry.id] == nil)
+                }
+                Text("También puedes arrastrar una imagen sobre la portada. Se ve mejor vertical (2:3); los colores de la página salen de ella.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Block(title: "Archivos") {
                 HStack {
                     Button("Abrir disco C:") { library.showDriveC(entry) }

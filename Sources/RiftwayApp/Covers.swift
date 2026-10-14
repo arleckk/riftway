@@ -1,6 +1,7 @@
 import AppKit
 import RiftwayCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Games as covers (2:3), with the per-game menu and its sheets (PRD-04 R1.1, R1.3).
 struct CoverGrid: View {
@@ -23,10 +24,12 @@ struct CoverGrid: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.minimum, maximum: 190), spacing: Self.spacing, alignment: .top)],
                       alignment: .leading, spacing: 26) {
                 ForEach(entries) { entry in
-                    CoverTile(entry: entry, icon: library.icons[entry.id], palette: library.palettes[entry.id] ?? .riftway,
+                    CoverTile(entry: entry, icon: library.icons[entry.id], art: library.covers[entry.id],
+                              palette: library.palettes[entry.id] ?? .riftway,
                               runningSince: library.running.contains(entry.id) ? (library.runningSince[entry.id] ?? Date()) : nil,
                               focused: pad?.isActive == true && pad?.focused == entry.id,
-                              play: { library.play(entry) }, stop: { library.stop(entry) }, open: { open(entry) })
+                              play: { library.play(entry) }, stop: { library.stop(entry) }, open: { open(entry) },
+                              setCover: { library.setCover(entry, image: $0) })
                         .contextMenu { menu(entry) }
                         .id(entry.id)
                 }
@@ -71,6 +74,10 @@ struct CoverGrid: View {
         Divider()
         Button("Configurar Jugar…") { playSettings = entry }
         Button("Configurar control…") { controllerSettings = entry }
+        Button("Cambiar portada…") { library.chooseCover(entry) }
+        if library.covers[entry.id] != nil {
+            Button("Quitar portada") { library.removeCover(entry) }
+        }
         Toggle("Modo diagnóstico", isOn: Binding(get: { entry.record.options.diagnostics },
                                                  set: { library.setDiagnostics(entry, $0) }))
         Button("Abrir logs") { library.showLogs(entry) }
@@ -100,10 +107,12 @@ struct CoverGrid: View {
 }
 
 /// One game: its cover, name and state. A click opens its page; Play shows
-/// on hover, and a double click plays too.
+/// on hover, and a double click plays too. An image dropped on it becomes its
+/// cover.
 private struct CoverTile: View {
     let entry: LibraryEntry
     let icon: NSImage?
+    let art: NSImage?
     let palette: CoverPalette
     /// When the game was opened, if it is open.
     let runningSince: Date?
@@ -112,12 +121,14 @@ private struct CoverTile: View {
     let play: () -> Void
     let stop: () -> Void
     let open: () -> Void
+    let setCover: (Data) -> Void
     @State private var hovering = false
     private var raised: Bool { hovering || focused }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            GameCover(name: entry.game.name, icon: icon, palette: palette)
+            GameCover(name: entry.game.name, icon: icon, palette: palette, art: art)
+                .coverDrop(setCover)
                 .overlay(alignment: .bottomLeading) {
                     if let runningSince { SessionPill(since: runningSince).padding(8) }
                 }
@@ -217,35 +228,48 @@ struct GameCover: View {
     let name: String
     let icon: NSImage?
     let palette: CoverPalette
+    /// The game's own cover, filling the 2:3 frame in place of the drawn one.
+    var art: NSImage? = nil
 
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
-            ZStack {
-                LinearGradient(colors: [Color(palette.top), Color(palette.bottom)], startPoint: .top, endPoint: .bottom)
-                // The rift: a soft diagonal light across the cover.
-                LinearGradient(colors: [.clear, .white.opacity(0.16), .clear], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: width * 0.5, height: geometry.size.height * 2)
-                    .rotationEffect(.degrees(24))
-                    .offset(x: width * 0.22, y: -width * 0.1)
-                    .blendMode(.plusLighter)
-                Group {
-                    if let icon {
-                        Image(nsImage: icon).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
-                            .frame(width: width * 0.58)
-                            .shadow(color: .black.opacity(0.35), radius: width * 0.05, y: width * 0.02)
-                    } else {
-                        Text(initials).font(.system(size: width * 0.28, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.92))
-                    }
-                }
-                .offset(y: -width * 0.08)
+            if let art {
+                Image(nsImage: art).resizable().interpolation(.high).aspectRatio(contentMode: .fill)
+                    .frame(width: width, height: geometry.size.height)
+                    .clipped()
+            } else {
+                drawn(width: width, height: geometry.size.height)
             }
-            .frame(width: width, height: geometry.size.height)
         }
         .aspectRatio(2 / 3, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .accessibilityHidden(true)
+    }
+
+    /// Riftway's cover: the icon's colors, the rift, the icon (or initials).
+    private func drawn(width: CGFloat, height: CGFloat) -> some View {
+        ZStack {
+            LinearGradient(colors: [Color(palette.top), Color(palette.bottom)], startPoint: .top, endPoint: .bottom)
+            // The rift: a soft diagonal light across the cover.
+            LinearGradient(colors: [.clear, .white.opacity(0.16), .clear], startPoint: .leading, endPoint: .trailing)
+                .frame(width: width * 0.5, height: height * 2)
+                .rotationEffect(.degrees(24))
+                .offset(x: width * 0.22, y: -width * 0.1)
+                .blendMode(.plusLighter)
+            Group {
+                if let icon {
+                    Image(nsImage: icon).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+                        .frame(width: width * 0.58)
+                        .shadow(color: .black.opacity(0.35), radius: width * 0.05, y: width * 0.02)
+                } else {
+                    Text(initials).font(.system(size: width * 0.28, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.92))
+                }
+            }
+            .offset(y: -width * 0.08)
+        }
+        .frame(width: width, height: height)
     }
 
     private var initials: String {
@@ -275,5 +299,43 @@ private struct AddCover: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
+    }
+}
+
+extension View {
+    /// Takes an image dropped on a cover (a file from Finder, or an image from
+    /// a browser) and hands its data to `set`. Other files pass through to the
+    /// window, which installs them.
+    func coverDrop(_ set: @escaping (Data) -> Void) -> some View {
+        modifier(CoverDropTarget(set: set))
+    }
+}
+
+private struct CoverDropTarget: ViewModifier {
+    let set: (Data) -> Void
+    @State private var targeted = false
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                if targeted {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.black.opacity(0.45))
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(Theme.pink, style: StrokeStyle(lineWidth: 3, dash: [8, 5]))
+                        Label("Usar como portada", systemImage: "photo").font(.callout.weight(.semibold))
+                            .foregroundStyle(.white).multilineTextAlignment(.center).padding(8)
+                    }
+                }
+            }
+            .onDrop(of: [.image], isTargeted: $targeted) { providers in
+                guard let provider = providers.first,
+                      let type = provider.registeredTypeIdentifiers.first(where: { UTType($0)?.conforms(to: .image) == true }) else { return false }
+                _ = provider.loadDataRepresentation(forTypeIdentifier: type) { data, _ in
+                    guard let data else { return }
+                    Task { @MainActor in set(data) }
+                }
+                return true
+            }
     }
 }
