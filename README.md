@@ -4,6 +4,19 @@
 > hito M0 (puente de URLs) y M1 (app, asociación con `.exe`/`.msi` y análisis de
 > instaladores). Licencia: [Apache 2.0](LICENSE).
 
+## Releases y actualizaciones (M5)
+
+```sh
+swift run riftway-release keygen      # una vez: llave de firma en ~/.riftway (nunca en el repo)
+scripts/release.sh --runtime work/runtime/artifacts/rw-0.1.2-spike.tar.gz --notes "…"
+```
+
+Deja en `build/release/<versión>/` el DMG, el zip que descarga el actualizador y
+`feed.json` con su firma Ed25519. La app solo busca actualizaciones si `app/Info.plist`
+trae `RiftwayFeedURL` (o `RIFTWAY_FEED_URL` al desarrollar); verifica la firma del feed,
+el tamaño y el SHA-256 de cada descarga y la firma de código de la app nueva antes de
+cambiar nada. Detalles en [PRD-06](docs/prd/PRD-06-distribucion-y-actualizaciones.md#estado-de-m5).
+
 ## La app (M1)
 
 ```sh

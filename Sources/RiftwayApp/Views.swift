@@ -6,10 +6,14 @@ import UniformTypeIdentifiers
 struct LibraryView: View {
     @Bindable var model: AppModel
     @Bindable var library: LibraryModel
+    @Bindable var updates: UpdateModel
     @State private var isTargeted = false
 
     var body: some View {
         VStack(spacing: 0) {
+            if SystemRequirements.needsRosetta {
+                RosettaBanner()
+            }
             if library.runtimes.isEmpty {
                 RuntimeBanner { library.chooseRuntime() }
             }
@@ -45,6 +49,9 @@ struct LibraryView: View {
         .sheet(item: $library.job) { job in
             InstallView(job: job, library: library)
         }
+        .sheet(isPresented: $updates.showsSheet) {
+            UpdateView(updates: updates, library: library)
+        }
         .sheet(isPresented: $model.showsAssociationOffer) {
             AssociationOfferView { model.associationOfferAnswered(accept: $0) }
         }
@@ -57,6 +64,19 @@ struct LibraryView: View {
             library.reload()
             library.startWatching()
         }
+    }
+}
+
+private struct RosettaBanner: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            Text("Los juegos de Windows necesitan Rosetta 2. Instálalo desde Terminal con: softwareupdate --install-rosetta")
+                .textSelection(.enabled)
+            Spacer()
+        }
+        .padding(12)
+        .background(Color.orange.opacity(0.12))
     }
 }
 
@@ -614,6 +634,8 @@ struct AssociationOfferView: View {
 }
 
 struct SettingsView: View {
+    let updates: UpdateModel
+    let library: LibraryModel
     @State private var refresh = 0
 
     var body: some View {
@@ -627,6 +649,8 @@ struct SettingsView: View {
                     }
                 }
             }
+            UpdateSettings(updates: updates)
+            UninstallSettings(library: library)
         }
         .formStyle(.grouped)
         .id(refresh)

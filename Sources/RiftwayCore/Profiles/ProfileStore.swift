@@ -49,8 +49,8 @@ public struct ProfileQuery: Sendable, Equatable {
 /// `<home>/Profiles` (the feed's cache, or the player's own), which win over a
 /// shipped profile with the same id when their revision is not older.
 ///
-/// The signed feed (PRD-05 R1.5) is not implemented yet: `<home>/Profiles` is
-/// read as is.
+/// The release feed's profiles (PRD-05 R1.5) arrive signed in
+/// `<home>/Updates/Profiles` (`Updater`).
 public struct ProfileStore: Sendable {
     public private(set) var profiles: [GameProfile]
     /// Files that failed to load, with the reason.
@@ -81,9 +81,10 @@ public struct ProfileStore: Sendable {
         self.problems = problems
     }
 
-    /// Shipped profiles, then the home's.
+    /// Shipped profiles, then the release feed's (`Updates/Profiles`), then the player's own.
     public static func standard(home: RiftwayHome = .standard) -> ProfileStore {
-        ProfileStore(directories: shippedDirectories() + [home.root.appendingPathComponent("Profiles", isDirectory: true)])
+        ProfileStore(directories: shippedDirectories() + [home.root.appendingPathComponent("Updates/Profiles", isDirectory: true),
+                                                          home.root.appendingPathComponent("Profiles", isDirectory: true)])
     }
 
     /// `RIFTWAY_PROFILES`; the app's `Contents/Resources/Profiles` (from

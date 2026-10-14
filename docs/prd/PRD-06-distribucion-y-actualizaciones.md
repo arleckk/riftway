@@ -48,3 +48,50 @@ Hasta tener la cuenta de Apple Developer (99 USD al año):
   y la CLI van en `Contents/Helpers/` y se firman antes que el bundle.
 - Scripts de release: compilar, firmar el runtime antes que el bundle exterior,
   notarizar y empaquetar.
+
+## Estado de M5
+
+Implementado (`Sources/RiftwayCore/Updates/`, `Sources/RiftwayRelease/`, `scripts/release.sh`):
+- **Feed firmado** (R5, R6): `feed.json` (esquema 1) con la app, los runtimes y los
+  perfiles, y `feed.json.sig`, firma Ed25519 de sus bytes exactos. Las llaves públicas
+  confiables están en `ReleaseKeys.trusted` (rotación: una llave nueva entra una versión
+  antes de retirar la anterior). Se rechaza un feed más viejo que el último aceptado
+  (sin rollbacks), un esquema desconocido, direcciones que no sean HTTPS (salvo
+  `localhost` y archivos, para desarrollo) y descargas cuyo tamaño o SHA-256 no
+  coincidan con el feed.
+- **App** (R5): se descarga el zip, se desempaca junto a la app instalada (mismo disco),
+  se verifica que sea el mismo identificador, la versión que dice el feed, más nueva, con
+  firma de código válida (estricta, con código anidado) y del mismo equipo de Developer
+  ID que la actual (hoy ninguno: ad hoc). La app se cierra y el `riftway apply-update` de
+  la app nueva espera a que salga, intercambia los bundles con un solo `renamex_np`
+  (`RENAME_SWAP`), manda la vieja a la Papelera y abre la nueva. Si algo falla, nada cambia.
+- **Runtimes** (R6): el `.tar.gz` del ensamblado, verificado y desempacado en
+  `Runtimes/<versión>` (debe traer `bin/wine` y un `runtime.json` con esa versión). Las
+  botellas siguen con su runtime; las nuevas usan el más reciente.
+- **Perfiles** (R6, PRD-05 R1.5): validados uno por uno; los del feed van a
+  `Updates/Profiles`, entre los incluidos en la app y los propios del jugador.
+- **R7**: al abrir una versión nueva por primera vez, la app reconstruye los puentes.
+- **R8**: Ajustes › Desinstalar Riftway: cierra los juegos, desregistra y manda a la
+  Papelera los puentes, los runtimes, las descargas y la app; las botellas solo si el
+  jugador lo marca (si no, se quedan para reinstalar).
+- **R9**: búsqueda automática como mucho una vez al día, desactivable en Ajustes; sin
+  `RiftwayFeedURL` (compilando desde el código) no hay ninguna conexión.
+- **R10**: "Acerca de" lista Apache 2.0 y los componentes del runtime con sus licencias.
+- **R3**: la app pide macOS 26.0 (el mínimo del runtime) y avisa si falta Rosetta 2.
+- Release: `scripts/release.sh [--runtime …tar.gz] [--notes …]` arma en
+  `build/release/<versión>/` el DMG (arrastrar a Aplicaciones), el zip para el
+  actualizador y el feed firmado. `riftway-release` (`keygen`, `sign`, `verify`, `feed`)
+  no va dentro de la app; la llave privada vive fuera del repositorio
+  (`~/.riftway/release-signing.key`).
+
+Probado de punta a punta (2026-10-13): una copia de 0.1.0 actualizada a 0.1.1 desde un
+feed servido en `localhost` (app, runtime `rw-0.1.2-spike` de 353 MB idéntico al
+ensamblado, perfiles), con el intercambio esperando al proceso de la app; un feed con un
+byte cambiado se rechaza.
+
+Pendiente:
+- Decidir dónde se publican las releases y poner esa dirección en `RiftwayFeedURL`.
+- Publicar el código fuente y los parches de cada runtime distribuido (R10, LGPL).
+- R1 y R4 (Developer ID, notarización, moverse a Aplicaciones) cuando haya cuenta.
+- Actualizaciones delta del runtime (hoy se descarga completo).
+

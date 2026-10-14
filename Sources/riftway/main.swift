@@ -68,6 +68,13 @@ Profiles and compatibility (profiles/ in the app, plus <home>/Profiles):
       and write it to the bottle (registry, per-program overrides, dxmt.conf).
   riftway anticheat <folder>
       Look for anti-cheats in a folder (a game's or a bottle's drive_c).
+
+Updates (the signed release feed, PRD-06; $RIFTWAY_FEED_URL or the app's RiftwayFeedURL):
+  riftway update-check [--feed URL]
+      Download and verify the feed; show what it offers.
+  riftway update [--feed URL] [--app PATH]
+      Install new runtimes and the feed's profiles; with --app, also the new
+      Riftway.app over PATH (Riftway must be closed).
 """
 
 struct Options {
@@ -77,7 +84,8 @@ struct Options {
 
     static let valued: Set<String> = ["--bottle", "--prefix", "--wine", "--name", "--scheme", "--arg", "--icon", "--output",
                                       "--runtime", "--at", "--timeout", "--debug", "--app-dpi", "--mouselook", "--env",
-                                      "--baseline-from", "--installer-arg", "--runtime-version", "--program-dll", "--command", "--args"]
+                                      "--baseline-from", "--installer-arg", "--runtime-version", "--program-dll", "--command", "--args", "--feed", "--app",
+                                      "--staged", "--target", "--pid"]
     /// Everything after `--`, passed through untouched.
     var passthrough: [String] = []
 
@@ -734,6 +742,42 @@ do {
         // The bridge carries the bottle's options: rebuild it.
         if entry.game.bridge != nil { _ = try GameLauncher.makeBridge(for: updated, shimBinary: try shimBinary(), home: library.home) }
         print("Saved. Diagnostics: \(record.options.diagnostics ? "on" : "off"); program overrides: \(record.options.programDllOverrides)")
+    case "update-check", "update":
+        guard let feed = options.one("--feed").flatMap(URL.init(string:)) ?? Updater.configuredFeedURL else {
+            throw CLIError("No release feed configured (pass --feed URL)")
+        }
+        let updater = Updater(feedURL: feed)
+        let manifest = try await updater.check()
+        print("Feed ok (signed), generated \(manifest.generated)")
+        if let app = manifest.app {
+            let newer = VersionNumber.isNewer(app.version, than: Riftway.version)
+            print("app:      \(app.version)" + (newer ? " (this is \(Riftway.version))" : " (up to date)"))
+        }
+        for r in manifest.runtimes {
+            let installed = updater.home.runtime(version: r.version) != nil
+            print("runtime:  \(r.version), \(r.download.size / 1_000_000) MB" + (installed ? " (installed)" : VersionNumber.macOS(meets: r.minimumMacOS) ? "" : " (needs macOS \(r.minimumMacOS))"))
+        }
+        print("profiles: \(manifest.profiles.count)" + (manifest.rejectedProfiles.isEmpty ? "" : ", rejected: \(manifest.rejectedProfiles.joined(separator: ", "))"))
+        guard args[1] == "update" else { break }
+        print("Profiles installed: \(try updater.install(profiles: manifest.profiles))")
+        for r in updater.newRuntimes(in: manifest) {
+            print("Installing runtime \(r.version)…")
+            print("Installed at \(try await updater.install(runtime: r).runtime.root)")
+        }
+        if let path = options.one("--app"), let app = manifest.app {
+            let target = URL(fileURLWithPath: path).standardizedFileURL
+            let current = Updater.version(of: target) ?? "0"
+            if VersionNumber.isNewer(app.version, than: current) {
+                let staged = try await updater.stage(app: app, replacing: target)
+                try Updater.apply(staged: staged, target: target, waitingFor: nil, open: false)
+                print("Riftway \(app.version) installed at \(target.path)")
+            }
+        }
+    case "apply-update":
+        // Run from the staged app by the running one, which then quits.
+        guard let staged = options.one("--staged"), let target = options.one("--target") else { throw CLIError("Pass --staged and --target") }
+        try Updater.apply(staged: URL(fileURLWithPath: staged), target: URL(fileURLWithPath: target),
+                          waitingFor: options.one("--pid").flatMap(Int32.init), open: !options.flags.contains("--no-open"))
     case "help", "--help", "-h":
         print(usage)
     default:

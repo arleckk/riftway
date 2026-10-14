@@ -308,6 +308,22 @@ final class LibraryModel {
         reload()
     }
 
+    /// After Riftway changes version, every bridge is rebuilt with the new
+    /// shim (PRD-06 R7); their schemes and defaults stay.
+    func rebuildBridgesAfterUpdate() {
+        let key = "lastRunVersion"
+        let last = UserDefaults.standard.string(forKey: key)
+        UserDefaults.standard.set(Riftway.version, forKey: key)
+        guard let last, last != Riftway.version else { return }
+        let library = library
+        let shim = shimBinary
+        let entries = library.entries().filter { $0.game.bridge != nil }
+        Task.detached { [log] in
+            for entry in entries { _ = try? GameLauncher.makeBridge(for: entry, shimBinary: shim, home: library.home) }
+            log.write("app: rebuilt \(entries.count) bridges after updating from \(last)")
+        }
+    }
+
     func rebuildBridge(_ entry: LibraryEntry) {
         do {
             let app = try GameLauncher.makeBridge(for: entry, shimBinary: shimBinary, home: library.home)

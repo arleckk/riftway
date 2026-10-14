@@ -20,8 +20,13 @@
 	<string>0.1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<!-- The runtime's minimum (runtime.json); Riftway is useless without it. -->
 	<key>LSMinimumSystemVersion</key>
-	<string>14.0</string>
+	<string>26.0</string>
+	<!-- The signed release feed (PRD-06). Empty: no update checks, as in builds
+	     from the source; scripts/release.sh builds read it from here. -->
+	<key>RiftwayFeedURL</key>
+	<string></string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.games</string>
 	<key>NSHighResolutionCapable</key>

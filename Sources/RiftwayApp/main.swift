@@ -8,6 +8,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
     let library = LibraryModel()
+    let updates = UpdateModel()
     private var window: NSWindow?
     private var settingsWindow: NSWindow?
     /// Files that arrive before the window exists (a cold launch from Finder).
@@ -23,7 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Riftway"
         window.contentMinSize = NSSize(width: 600, height: 420)
-        let host = NSHostingController(rootView: LibraryView(model: model, library: library)
+        let host = NSHostingController(rootView: LibraryView(model: model, library: library, updates: updates)
             .frame(minWidth: 600, minHeight: 420))
         // The window keeps its own size; the library's grid has no ideal width
         // and would shrink it to a sliver.
@@ -41,6 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         launched = true
         model.start()
         if !early.isEmpty { model.open(early); early = [] }
+        library.rebuildBridgesAfterUpdate()
+        updates.checkIfDue()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -71,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showSettings(_ sender: Any?) {
         if settingsWindow == nil {
-            let controller = NSHostingController(rootView: SettingsView())
+            let controller = NSHostingController(rootView: SettingsView(updates: updates, library: library))
             let window = NSWindow(contentViewController: controller)
             window.title = "Ajustes"
             window.styleMask = [.titled, .closable]
@@ -83,11 +86,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate()
     }
 
+    @objc func checkForUpdates(_ sender: Any?) {
+        showMain()
+        updates.check(manual: true)
+    }
+
+    @objc func showAbout(_ sender: Any?) {
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: SystemRequirements.credits(runtime: library.runtimes.first?.runtime)])
+        NSApp.activate()
+    }
+
     private func makeMenu() -> NSMenu {
         let main = NSMenu()
         let appItem = NSMenuItem()
         let app = NSMenu()
-        app.addItem(withTitle: "Acerca de Riftway", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        app.addItem(withTitle: "Acerca de Riftway", action: #selector(showAbout(_:)), keyEquivalent: "")
+        app.addItem(withTitle: "Buscar actualizaciones…", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
         app.addItem(.separator())
         app.addItem(withTitle: "Ajustes…", action: #selector(showSettings(_:)), keyEquivalent: ",")
         app.addItem(.separator())
@@ -147,7 +161,7 @@ func renderLibrary(to output: String, installedBottle: String? = nil) -> Int32 {
         job.phase = .result
         view = AnyView(InstallView(job: job, library: library))
     } else {
-        view = AnyView(LibraryView(model: AppModel(), library: library).frame(width: 820, height: 560))
+        view = AnyView(LibraryView(model: AppModel(), library: library, updates: UpdateModel()).frame(width: 820, height: 560))
     }
     return snapshot(view, to: output)
 }
@@ -183,6 +197,19 @@ if let index = arguments.firstIndex(of: "--render-play-settings"), arguments.cou
 }
 if let index = arguments.firstIndex(of: "--render-install"), arguments.count > index + 2 {
     exit(MainActor.assumeIsolated { renderLibrary(to: arguments[index + 2], installedBottle: arguments[index + 1]) })
+}
+if let index = arguments.firstIndex(of: "--render-settings"), arguments.count > index + 1 {
+    exit(MainActor.assumeIsolated { snapshot(AnyView(SettingsView(updates: UpdateModel(), library: LibraryModel())), to: arguments[index + 1]) })
+}
+if let index = arguments.firstIndex(of: "--render-updates"), arguments.count > index + 1 {
+    // Checks $RIFTWAY_FEED_URL and draws the update sheet.
+    exit(MainActor.assumeIsolated {
+        let updates = UpdateModel()
+        updates.check(manual: true)
+        let deadline = Date().addingTimeInterval(30)
+        while updates.phase == .checking, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+        return snapshot(AnyView(UpdateView(updates: updates, library: LibraryModel())), to: arguments[index + 1])
+    })
 }
 if let index = arguments.firstIndex(of: "--render-analysis"), arguments.count > index + 2 {
     exit(MainActor.assumeIsolated { renderAnalysis(arguments[index + 1], to: arguments[index + 2]) })
