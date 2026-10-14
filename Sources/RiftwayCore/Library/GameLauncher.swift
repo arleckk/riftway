@@ -143,6 +143,7 @@ public enum GameLauncher {
         case (_, nil):
             break
         }
+        config.inputHelper = InputHelper.bundle(nextTo: shimBinary)?.path
         if case .link? = entry.game.customLaunch {
             config.rememberLinkAccount = entry.game.secretAccount
             config.secretsDirectory = entry.secrets.directory.path

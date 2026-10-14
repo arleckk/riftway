@@ -220,6 +220,7 @@ final class LibraryModel {
             case .wine(let plan, let logFile):
                 let pid = try Launcher.start(plan, outputLog: logFile)
                 log.write("app: started \(entry.game.name) (pid \(pid))")
+                InputHelper.startIfNeeded(app: InputHelper.bundle(nextTo: shimBinary), bottleRoot: entry.root)
                 starting[entry.id] = Date()
                 running.insert(entry.id)
             }

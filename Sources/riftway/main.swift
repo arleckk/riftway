@@ -69,6 +69,13 @@ Profiles and compatibility (profiles/ in the app, plus <home>/Profiles):
   riftway anticheat <folder>
       Look for anti-cheats in a folder (a game's or a bottle's drive_c).
 
+Controllers (PRD-08; keys and mouse need the Riftway Input helper):
+  riftway controller <game> [--program EXE (--mode native|desktop|keyboard|off | --import FILE.vdf)]
+      Show the game's controller setup, or set a program's mode; --import reads
+      a Steam Input configuration (controller_*.vdf) as that program's keyboard mode.
+  riftway controller-import <file.vdf>
+      Show what Riftway would take from a Steam Input configuration.
+
 Updates (the signed release feed, PRD-06; $RIFTWAY_FEED_URL or the app's RiftwayFeedURL):
   riftway update-check [--feed URL]
       Download and verify the feed; show what it offers.
@@ -85,7 +92,7 @@ struct Options {
     static let valued: Set<String> = ["--bottle", "--prefix", "--wine", "--name", "--scheme", "--arg", "--icon", "--output",
                                       "--runtime", "--at", "--timeout", "--debug", "--app-dpi", "--mouselook", "--env",
                                       "--baseline-from", "--installer-arg", "--runtime-version", "--program-dll", "--command", "--args", "--feed", "--app",
-                                      "--staged", "--target", "--pid"]
+                                      "--staged", "--target", "--pid", "--program", "--mode", "--import"]
     /// Everything after `--`, passed through untouched.
     var passthrough: [String] = []
 
@@ -264,6 +271,16 @@ func describe(_ result: InstallResult) -> String {
     for e in result.executables.prefix(5) { lines.append("exe:        \(e)") }
     for a in result.anticheat { lines.append("anti-cheat: \(describe(a))") }
     lines.append("changed files: \(result.changedFiles)")
+    return lines.joined(separator: "\n")
+}
+
+func describe(_ set: ActionSet) -> String {
+    func line(_ layer: InputLayer) -> String {
+        ControllerButton.allCases.compactMap { button in layer.bindings[button].map { "\(button.rawValue)=\($0)" } }.joined(separator: " ")
+    }
+    var lines = ["source:   \(set.source ?? "?")", "base:     " + line(set.base)]
+    for (name, layer) in set.layers.sorted(by: { $0.key < $1.key }) { lines.append("layer \(name): " + line(layer)) }
+    if !set.pointer.isEmpty { lines.append("pointer:  " + set.pointer.map(\.rawValue).joined(separator: ", ")) }
     return lines.joined(separator: "\n")
 }
 
@@ -742,6 +759,37 @@ do {
         // The bridge carries the bottle's options: rebuild it.
         if entry.game.bridge != nil { _ = try GameLauncher.makeBridge(for: updated, shimBinary: try shimBinary(), home: library.home) }
         print("Saved. Diagnostics: \(record.options.diagnostics ? "on" : "off"); program overrides: \(record.options.programDllOverrides)")
+    case "controller-import":
+        guard let path = options.positional.first else { throw CLIError("Pass the .vdf file") }
+        let url = URL(fileURLWithPath: path)
+        let result = try SteamInputImport.parse(try String(contentsOf: url, encoding: .utf8), name: url.lastPathComponent)
+        print(describe(result.actionSet))
+        for item in result.skipped { print("skipped:  \(item)") }
+    case "controller":
+        let library = Library()
+        let entry = try findGame(library, options.positional.first)
+        var layout = ControllerLayout.read(bottle: entry.root) ?? ControllerLayout()
+        if let program = options.one("--program") {
+            if let path = options.one("--import") {
+                let url = URL(fileURLWithPath: path)
+                let result = try SteamInputImport.parse(try String(contentsOf: url, encoding: .utf8), name: url.lastPathComponent)
+                layout.programs[program] = ProgramControls(mode: .keyboard, actionSet: result.actionSet)
+                for item in result.skipped { print("skipped:  \(item)") }
+            } else if let mode = options.one("--mode").flatMap(InputMode.init(rawValue:)) {
+                var controls = layout.programs[program] ?? ProgramControls(mode: mode)
+                controls.mode = mode
+                layout.programs[program] = controls
+            } else {
+                throw CLIError("Pass --mode native|desktop|keyboard|off or --import FILE.vdf")
+            }
+            try layout.write(bottle: entry.root)
+            print("Saved \(entry.root.appendingPathComponent(ControllerLayout.fileName).path)")
+        }
+        for (program, controls) in layout.programs.sorted(by: { $0.key < $1.key }) {
+            print("\(program): \(controls.mode.rawValue)")
+            if controls.mode == .keyboard, let set = controls.actionSet { print(describe(set).split(separator: "\n").map { "  " + $0 }.joined(separator: "\n")) }
+        }
+        print("other programs: \(layout.otherPrograms.rawValue)")
     case "update-check", "update":
         guard let feed = options.one("--feed").flatMap(URL.init(string:)) ?? Updater.configuredFeedURL else {
             throw CLIError("No release feed configured (pass --feed URL)")

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Estado | Exploración (2026-10-13); capa 0 implementada |
+| Estado | Capas 0 y 2 implementadas (2026-10-14); falta el editor en la app |
 | Hito | Después de M5 (propuesto como M6) |
 | Relacionado | [PRD-05](PRD-05-perfiles-y-compatibilidad.md) (perfiles), [PRD-07](PRD-07-compatibilidad-online.md) (línea roja) |
 
@@ -152,7 +152,33 @@ como las demás opciones.
 
 1. ✅ Capa 0 por defecto (este PRD).
 2. ✅ DSR con la capa 0: el control llega (`winexinput.sys`), el juego no lo usa.
-3. `riftway-input` con `desktop` (launcher) y `keyboard` (cliente de DSR), detección del
-   programa al frente y permiso de Accesibilidad.
+3. ✅ `Riftway Input` con `desktop` y `keyboard`, detección del programa al frente y
+   permiso de Accesibilidad. Probado con un DualShock 4 en `ISIDE.exe` (corpus): las
+   teclas llegan a Wine, el touchpad mueve el cursor y el ayudante se cierra al terminar
+   la sesión. DSR configurado: launcher en `desktop`, cliente con el mapeo de Steam Input
+   del jugador; falta jugarlo así.
 4. Editor de mapeos en la app y la sección `controller` de los perfiles.
 5. Capa 1 (remapeo de SDL) y la opción de PlayStation crudo.
+
+## Implementación (capa 2)
+
+- `controller.json` en la botella: modo por programa (`native`, `desktop`, `keyboard`,
+  `off`), conjuntos de acciones con capas y fuentes de puntero (`ControllerLayout`).
+  `riftway controller <juego> --program EXE (--mode … | --import archivo.vdf)`.
+- **Importar Steam Input** (`SteamInputImport`): lee `controller_*.vdf` (exportado o de
+  `userdata`): botones, cruceta, sticks como cruceta o mouse, gatillos, `switches`,
+  touchpad (clic por mitades, `absolute_mouse` como puntero) y capas `hold_layer`. Lo que
+  solo Steam hace (salida XInput, giroscopio, acciones del sistema, paletas traseras) se
+  informa y se omite. No guarda el `creator` (la cuenta de Steam).
+- **Riftway Input** (`Sources/RiftwayInput`, `Contents/Helpers/Riftway Input.app`): app de
+  fondo (sin Dock), abierta con LaunchServices para que el permiso de Accesibilidad sea
+  suyo y no del puente. Una por botella (candado `input.lock`). Lee el control con
+  GameController en segundo plano, identifica el programa al frente por el `argv[0]` que
+  Wine le pone (la ruta del `.exe` dentro del prefijo; nunca lee los argumentos), aplica
+  el modo de ese programa, suelta todo al cambiar de programa, recarga `controller.json`
+  si cambia y se cierra cuando termina la sesión de Wine.
+- La inician el puente (en cada lanzamiento) y la app (Jugar) si `controller.json` lo
+  necesita.
+- Firma ad hoc: macOS liga el permiso de Accesibilidad a la compilación; al recompilar el
+  ayudante hay que volver a activarlo. Con Developer ID queda estable.
+

@@ -24,6 +24,8 @@ public struct ShimConfig: Codable, Sendable, Equatable {
     /// for a game whose Play button reuses it.
     public var rememberLinkAccount: String?
     public var secretsDirectory: String?
+    /// `Riftway Input.app`, started with each launch when the game has a controller layout.
+    public var inputHelper: String?
 
     public init(displayName: String, bottle: Bottle, schemes: [String], extraArguments: [String] = [],
                 environment: [String: String] = [:], dryRun: Bool = false) {
@@ -36,7 +38,7 @@ public struct ShimConfig: Codable, Sendable, Equatable {
         self.dryRun = dryRun
     }
 
-    enum CodingKeys: String, CodingKey { case displayName, bundleIdentifier, bottle, schemes, extraArguments, environment, dryRun, wineLog, program, webPage, rememberLinkAccount, secretsDirectory }
+    enum CodingKeys: String, CodingKey { case displayName, bundleIdentifier, bottle, schemes, extraArguments, environment, dryRun, wineLog, program, webPage, rememberLinkAccount, secretsDirectory, inputHelper }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -52,6 +54,7 @@ public struct ShimConfig: Codable, Sendable, Equatable {
         webPage = try c.decodeIfPresent(String.self, forKey: .webPage)
         rememberLinkAccount = try c.decodeIfPresent(String.self, forKey: .rememberLinkAccount)
         secretsDirectory = try c.decodeIfPresent(String.self, forKey: .secretsDirectory)
+        inputHelper = try c.decodeIfPresent(String.self, forKey: .inputHelper)
     }
 
     /// `webPage` when it is an http or https address.

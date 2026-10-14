@@ -71,6 +71,10 @@ final class ShimDelegate: NSObject, NSApplicationDelegate {
             } else {
                 let pid = try Launcher.start(plan, outputLog: config.sessionLog())
                 log.write("shim: started pid \(pid) in bottle \(config.bottle.name): \(plan.logDescription(hiding: secret))")
+                let bottleRoot = URL(fileURLWithPath: config.bottle.prefix, isDirectory: true).deletingLastPathComponent()
+                if InputHelper.startIfNeeded(app: config.inputHelper.map { URL(fileURLWithPath: $0) }, bottleRoot: bottleRoot) {
+                    log.write("shim: started Riftway Input for the game's controller layout")
+                }
             }
         } catch {
             log.write("shim: \(error)")

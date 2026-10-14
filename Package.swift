@@ -12,6 +12,8 @@ let package = Package(
         .executable(name: "RiftwayApp", targets: ["RiftwayApp"]),
         // Release tooling: signing keys and the update feed. Not shipped in the app.
         .executable(name: "riftway-release", targets: ["RiftwayRelease"]),
+        // Controller to keys and mouse (PRD-08); build-app.sh wraps it in Riftway Input.app.
+        .executable(name: "riftway-input", targets: ["RiftwayInput"]),
     ],
     targets: [
         .target(name: "RiftwayCore"),
@@ -19,6 +21,7 @@ let package = Package(
         .executableTarget(name: "RiftwayShim", dependencies: ["RiftwayCore"]),
         .executableTarget(name: "RiftwayApp", dependencies: ["RiftwayCore"]),
         .executableTarget(name: "RiftwayRelease", dependencies: ["RiftwayCore"]),
+        .executableTarget(name: "RiftwayInput", dependencies: ["RiftwayCore"]),
         .testTarget(name: "RiftwayCoreTests", dependencies: ["RiftwayCore"]),
     ]
 )
