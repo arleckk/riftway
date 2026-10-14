@@ -1,6 +1,7 @@
 import Foundation
 import GameController
 import Observation
+import RiftwayCore
 
 /// The controllers connected to the Mac and their batteries, for the sidebar.
 /// Unlike `ControllerMonitor` (the editor's), it never reads buttons: it hears
@@ -12,6 +13,7 @@ final class ControllerStatus {
         let name: String
         let battery: Float?
         let charging: Bool
+        let family: ControllerFamily
     }
 
     private(set) var pads: [Pad] = []
@@ -36,7 +38,8 @@ final class ControllerStatus {
             Pad(id: ObjectIdentifier(controller),
                 name: controller.productCategory.isEmpty ? (controller.vendorName ?? "Control") : controller.productCategory,
                 battery: controller.battery.map(\.batteryLevel),
-                charging: controller.battery?.batteryState == .charging)
+                charging: controller.battery?.batteryState == .charging,
+                family: ControllerFamily(productCategory: controller.productCategory))
         }
         if now != pads { pads = now }
     }

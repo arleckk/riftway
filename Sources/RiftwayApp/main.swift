@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let updates = UpdateModel()
     let controllers = ControllerStatus()
     private var playingMenu: PlayingMenu?
+    private var couch: CouchMode?
     private var window: NSWindow?
     private var settingsWindow: NSWindow?
     /// Files that arrive before the window exists (a cold launch from Finder).
@@ -56,6 +57,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = PlayingMenu(library: library, controllers: controllers) { [weak self] in self?.showMain() }
         menu.start()
         playingMenu = menu
+        let couch = CouchMode(library: library, controllers: controllers) { [weak self] entry in
+            self?.library.requestedPage = entry.id
+            self?.showMain()
+        }
+        couch.start()
+        self.couch = couch
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -98,6 +105,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate()
     }
 
+    @objc func toggleCouchMode(_ sender: Any?) {
+        guard let couch else { return }
+        couch.isOpen ? couch.close() : couch.open()
+    }
+
     @objc func checkForUpdates(_ sender: Any?) {
         showMain()
         updates.check(manual: true)
@@ -129,6 +141,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         file.addItem(withTitle: "Cerrar ventana", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         fileItem.submenu = file
         main.addItem(fileItem)
+
+        let viewItem = NSMenuItem()
+        let view = NSMenu(title: "Ver")
+        let couchItem = view.addItem(withTitle: "Modo sillón", action: #selector(toggleCouchMode(_:)), keyEquivalent: "f")
+        couchItem.keyEquivalentModifierMask = [.command, .shift]
+        viewItem.submenu = view
+        main.addItem(viewItem)
 
         let windowItem = NSMenuItem()
         let windows = NSMenu(title: "Ventana")
@@ -226,6 +245,16 @@ if let index = arguments.firstIndex(of: "--render-page"), arguments.count > inde
 }
 if let index = arguments.firstIndex(of: "--render-game"), arguments.count > index + 3 {
     exit(MainActor.assumeIsolated { renderGame(arguments[index + 1], tab: arguments[index + 2], to: arguments[index + 3]) })
+}
+if let index = arguments.firstIndex(of: "--render-couch"), arguments.count > index + 1 {
+    // `--render-couch <out.png> [options]`: the couch mode at 1600×900, with its options open.
+    exit(MainActor.assumeIsolated {
+        let library = LibraryModel()
+        library.reload()
+        let couch = CouchMode(library: library, controllers: ControllerStatus()) { _ in }
+        if arguments.count > index + 2, arguments[index + 2] == "options" { couch.showOptionsForRender() }
+        return snapshot(AnyView(CouchView(mode: couch).frame(width: 1600, height: 900)), to: arguments[index + 1])
+    })
 }
 if let index = arguments.firstIndex(of: "--render-play-settings"), arguments.count > index + 2 {
     exit(MainActor.assumeIsolated {

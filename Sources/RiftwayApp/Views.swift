@@ -46,6 +46,13 @@ struct LibraryView: View {
         }
         .tint(Theme.violet)
         .onChange(of: item) { path.removeAll() }
+        .onChange(of: library.requestedPage, initial: true) {
+            guard let id = library.requestedPage else { return }
+            library.requestedPage = nil
+            item = .library
+            // After the section change, which empties the path.
+            Task { @MainActor in path = [id] }
+        }
         .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
             for provider in providers {
                 _ = provider.loadObject(ofClass: URL.self) { url, _ in

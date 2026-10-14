@@ -1,0 +1,42 @@
+import Testing
+@testable import RiftwayCore
+
+@Suite struct CouchInputTests {
+    private func state(_ change: (inout CouchPadState) -> Void) -> CouchPadState {
+        var state = CouchPadState()
+        change(&state)
+        return state
+    }
+
+    @Test func buttonsGiveOneCommandPerPress() {
+        var reader = CouchInputReader()
+        let pressed = state { $0.confirm = true }
+        #expect(reader.read(pressed, at: 0) == [.confirm])
+        #expect(reader.read(pressed, at: 1).isEmpty)
+        #expect(reader.read(CouchPadState(), at: 1.1).isEmpty)
+        #expect(reader.read(pressed, at: 1.2) == [.confirm])
+    }
+
+    @Test func heldDirectionsRepeatAfterAPause() {
+        var reader = CouchInputReader(firstRepeat: 0.4, repeatEvery: 0.1)
+        let right = state { $0.right = true }
+        #expect(reader.read(right, at: 0) == [.right])
+        #expect(reader.read(right, at: 0.3).isEmpty)
+        #expect(reader.read(right, at: 0.4) == [.right])
+        #expect(reader.read(right, at: 0.45).isEmpty)
+        #expect(reader.read(right, at: 0.5) == [.right])
+        // Let go and press again: right away, with a new pause.
+        #expect(reader.read(CouchPadState(), at: 0.55).isEmpty)
+        #expect(reader.read(right, at: 0.6) == [.right])
+        #expect(reader.read(right, at: 0.7).isEmpty)
+    }
+
+    @Test func simultaneousPressesAllCount() {
+        var reader = CouchInputReader()
+        let both = state {
+            $0.down = true
+            $0.nextSection = true
+        }
+        #expect(reader.read(both, at: 0) == [.down, .nextSection])
+    }
+}

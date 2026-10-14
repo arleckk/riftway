@@ -42,6 +42,8 @@ final class LibraryModel {
     /// When each open game was first seen open, for its session time.
     private(set) var runningSince: [String: Date] = [:]
     var job: InstallJob?
+    /// A game whose page the main window should show (from the couch mode).
+    var requestedPage: String?
     /// An error to show in an alert.
     var problem: String?
 
