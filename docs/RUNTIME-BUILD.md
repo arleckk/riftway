@@ -513,7 +513,7 @@ el commit de `sources.lock.json`).
 Decisión: **Riftway no aplica `ncrypt-persisted-keys.patch`** (`EXCLUDED_SOJU_PATCHES` en
 `runtime/build.py`; desviación registrada en el lock) y el runtime queda en LGPL-2.1+. El
 costo: el Epic Games Launcher vuelve a perder su llave DPoP en cada arranque (Wine sin
-parchar). Ningún juego del corpus lo necesita, salvo Epic; que DSR siga entrando en línea se confirma jugando con `rw-0.1.3-spike`.
+parchar). Ningún juego del corpus lo necesita, salvo Epic. DSR con `rw-0.1.3-spike` (2026-10-14): el prefijo se actualizó solo (`wineboot`), el launcher, el cliente y XIGNCODE3 (`x3_x64.xem`, `xxd-0.xem`) cargan y el jugador lo reporta bien; la partida en línea se confirma cuando termine el mantenimiento del juego.
 Para recuperarlo: pedir a Soju que lo ofrezca con LGPL-2.1+ como el del Dock, o que lo
 envíe a Wine. El runtime lleva `licenses/Soju-NOTICE` en lugar del texto de la GPL-3.0.
 
