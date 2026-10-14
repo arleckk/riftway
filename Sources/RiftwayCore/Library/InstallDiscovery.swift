@@ -79,6 +79,8 @@ public struct InstallResult: Codable, Sendable, Equatable {
     public var drivers: [DriverEntry] = []
     /// New `.exe` files, largest first (Windows paths).
     public var executables: [String] = []
+    /// Anti-cheats among the new files and drivers.
+    public var anticheat: [AntiCheatFinding] = []
     public var changedFiles = 0
 
     public init() {}
@@ -111,6 +113,7 @@ public enum InstallDiscovery {
             .prefix(20)
             .map(windowsPath)
         result.primary = primary(result.programs, product: product, executables: result.executables, files: now.files)
+        result.anticheat = AntiCheatDetector.scan(files: changed, drivers: result.drivers)
         return result
     }
 

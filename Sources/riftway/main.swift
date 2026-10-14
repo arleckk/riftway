@@ -59,6 +59,15 @@ Library (~/Library/Application Support/Riftway, or $RIFTWAY_HOME):
       Diagnostic mode: Wine's errors and DLL loads in the bottle's logs/session-*.log.
   riftway program-dll <game> <program.exe> <dll> <mode|off|remove>
       A DLL override for one program of the game (mode: n, b, n,b, b,n; off = disabled).
+
+Profiles and compatibility (profiles/ in the app, plus <home>/Profiles):
+  riftway profiles [--check FILE...]
+      List the known profiles, or validate profile files (what CI runs).
+  riftway profile <game> [ID | --none | --auto]
+      Show the game's profile and compatibility, or set it (--auto: find one)
+      and write it to the bottle (registry, per-program overrides, dxmt.conf).
+  riftway anticheat <folder>
+      Look for anti-cheats in a folder (a game's or a bottle's drive_c).
 """
 
 struct Options {
@@ -245,7 +254,26 @@ func describe(_ result: InstallResult) -> String {
     if !result.associations.isEmpty { lines.append("extensions: " + result.associations.joined(separator: " ")) }
     for d in result.drivers { lines.append("driver:     \(d.name) type=\(d.type.map(String.init) ?? "?") \(d.imagePath ?? "")") }
     for e in result.executables.prefix(5) { lines.append("exe:        \(e)") }
+    for a in result.anticheat { lines.append("anti-cheat: \(describe(a))") }
     lines.append("changed files: \(result.changedFiles)")
+    return lines.joined(separator: "\n")
+}
+
+func describe(_ finding: AntiCheatFinding) -> String {
+    finding.vendor.displayName + (finding.driver ? " (kernel driver)" : "") + (finding.protonModule ? " (Proton module shipped)" : "")
+        + "  ← " + finding.evidence
+}
+
+func describe(_ c: Compatibility) -> String {
+    var lines = ["status:     " + c.status.rawValue + (c.profile.map { " (profile \($0.id), revision \($0.revision))" } ?? " (no profile)")]
+    if let tested = c.profile?.tested {
+        lines.append("tested:     \(tested.date), macOS \(tested.macos), \(tested.hardware), runtime \(tested.runtime)" + (tested.online == true ? ", online" : ""))
+    }
+    if let info = c.profile?.anticheat {
+        lines.append("anti-cheat: \(info.vendor.displayName) (\(info.kernel ? "needs its kernel driver" : "user mode"), per the profile)")
+    }
+    for a in c.anticheat { lines.append("found:      \(describe(a))") }
+    if let notes = c.profile?.notes { lines.append("notes:      " + notes) }
     return lines.joined(separator: "\n")
 }
 
@@ -293,7 +321,9 @@ func install(_ options: Options) async throws {
     let report = InstallerAnalyzer.analyze(URL(fileURLWithPath: path).standardizedFileURL)
     print(describe(report))
     if case .unsupported = report.kind { throw CLIError("Riftway can't install this file") }
-    let installation = Installation(report: report, name: options.one("--name"), runtime: runtime, library: library)
+    let profile = library.profiles.match(ProfileQuery(report: report, hash: library.profiles.usesHashes))
+    print(describe(Compatibility(profile: profile)))
+    let installation = Installation(report: report, name: options.one("--name"), runtime: runtime, library: library, profile: profile)
     print("Bottle: \(installation.root.path) (runtime \(runtime.version))")
     let start = Date()
     let result = try installation.run(arguments: options.many("--installer-arg")) { stage in
@@ -313,7 +343,13 @@ func install(_ options: Options) async throws {
     let game = installation.makeGame(result)
     try library.save(game, in: installation.root)
     print("Added to the library: \(game.name) → \(target(game.primary))")
-    guard !options.flags.contains("--no-bridge"), let entry = library.entry(at: installation.root) else { return }
+    guard var entry = library.entry(at: installation.root) else { return }
+    if let updated = try library.updateProfile(entry) {
+        entry = updated
+        print("Profile: \(updated.profile?.id ?? "none")")
+    }
+    print(describe(entry.compatibility))
+    guard !options.flags.contains("--no-bridge") else { return }
     let app = try GameLauncher.makeBridge(for: entry, shimBinary: try shimBinary(), home: library.home)
     try library.save({ var g = game; g.bridge = app.path; return g }(), in: installation.root)
     print("Bridge: \(app.path)" + (game.schemes.isEmpty ? "" : " (schemes: \(game.schemes.joined(separator: ", ")))"))
@@ -380,7 +416,7 @@ func adopt(_ options: Options) async throws {
     try fm.createDirectory(at: library.home.bottles, withIntermediateDirectories: true)
     try fm.moveItem(at: source, to: root)
     print("Moved to \(root.path)")
-    let setup = BottleSetup(runtime: runtime.runtime, root: root, options: record.options)
+    let setup = BottleSetup(runtime: runtime.runtime, root: root, options: record.options, runtimeVersion: record.runtimeVersion)
     try setup.isolate()
     record.name = name
     try library.save(record, in: root)
@@ -394,8 +430,11 @@ func adopt(_ options: Options) async throws {
     if let registered = game.uninstall?.displayName, options.one("--name") == nil { game.name = registered }
     game.publisher = game.uninstall?.publisher
     try library.save(game, in: root)
-    try setup.applyProgramOverrides()
-    guard let entry = library.entry(at: root) else { throw CLIError("Could not read the adopted bottle") }
+    try setup.applySettings()
+    guard var entry = library.entry(at: root) else { throw CLIError("Could not read the adopted bottle") }
+    if let updated = try library.updateProfile(entry) { entry = updated }
+    print(describe(entry.compatibility))
+    game = entry.game
     let app = try GameLauncher.makeBridge(for: entry, shimBinary: try shimBinary(), home: library.home)
     game.bridge = app.path
     try library.save(game, in: root)
@@ -528,9 +567,68 @@ do {
         exit(status)
     case "inspect":
         guard !options.positional.isEmpty else { throw CLIError("Pass one or more files") }
+        let profiles = ProfileStore.standard()
         for path in options.positional {
-            print(describe(InstallerAnalyzer.analyze(URL(fileURLWithPath: path))))
+            let report = InstallerAnalyzer.analyze(URL(fileURLWithPath: path))
+            print(describe(report))
+            if case .unsupported = report.kind { continue }
+            let profile = profiles.match(ProfileQuery(report: report, hash: profiles.usesHashes))
+            print(describe(Compatibility(profile: profile)).split(separator: "\n").map { "  " + $0 }.joined(separator: "\n"))
         }
+    case "profiles":
+        if options.flags.contains("--check") || !options.positional.isEmpty {
+            var failed = false
+            for path in options.positional {
+                do {
+                    let profile = try GameProfile.load(try Data(contentsOf: URL(fileURLWithPath: path)))
+                    print("ok   \(path) (\(profile.id), \(profile.status.rawValue))")
+                } catch {
+                    print("FAIL \(path): \(error)")
+                    failed = true
+                }
+            }
+            if failed { exit(1) }
+        } else {
+            let store = ProfileStore.standard()
+            if store.profiles.isEmpty { print("No profiles (looked in: \(ProfileStore.shippedDirectories().map(\.path)))") }
+            for p in store.profiles { print("\(p.id)  \(p.status.rawValue)  \(p.name)  [revision \(p.revision)]") }
+            for (file, problem) in store.problems.sorted(by: { $0.key < $1.key }) { print("not loaded: \(file): \(problem)") }
+        }
+    case "profile":
+        let library = Library()
+        var entry = try findGame(library, options.positional.first)
+        if options.positional.count > 1 || options.flags.contains("--none") || options.flags.contains("--auto") {
+            guard !WineServer.isRunning(prefix: entry.root.appendingPathComponent("prefix")) else {
+                throw CLIError("\(entry.game.name) is open; close it first")
+            }
+            let profile: GameProfile?
+            if options.flags.contains("--none") {
+                profile = nil
+            } else if options.flags.contains("--auto") {
+                guard let found = library.profiles.match(ProfileQuery(game: entry.game)) else { throw CLIError("No profile matches \(entry.game.name)") }
+                profile = found
+            } else {
+                guard let found = library.profiles.profile(id: options.positional[1]) else { throw CLIError("No profile \(options.positional[1])") }
+                profile = found
+            }
+            entry = try library.apply(profile, to: entry)
+            if entry.game.bridge != nil { _ = try GameLauncher.makeBridge(for: entry, shimBinary: try shimBinary(), home: library.home) }
+            print("Applied.")
+        } else if let suggested = library.profiles.match(ProfileQuery(game: entry.game)), entry.profile == nil {
+            print("A profile matches: \(suggested.id) (riftway profile \(entry.id) --auto)")
+        }
+        print(describe(entry.compatibility))
+        if entry.profileIsStale { print("The profile changed since the bottle applied it; run riftway profile \(entry.id) --auto") }
+    case "anticheat":
+        guard let path = options.positional.first else { throw CLIError("Pass a folder") }
+        let root = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+        var files: [String] = []
+        if let walker = FileManager.default.enumerator(atPath: root.path) {
+            while let file = walker.nextObject() as? String { files.append(file) }
+        }
+        let found = AntiCheatDetector.scan(files: files)
+        if found.isEmpty { print("No known anti-cheat in \(files.count) files") }
+        for a in found { print(describe(a)) }
     case "shortcut":
         guard !options.positional.isEmpty else { throw CLIError("Pass one or more .lnk files") }
         for path in options.positional {
@@ -589,6 +687,9 @@ do {
             if !e.game.schemes.isEmpty { print("  schemes: \(e.game.schemes.joined(separator: ", "))") }
             if let bridge = e.game.bridge { print("  bridge:  \(bridge)") }
             if !e.game.drivers.isEmpty { print("  drivers: \(e.game.drivers.map(\.name).joined(separator: ", "))") }
+            let c = e.compatibility
+            print("  status:  \(c.status.rawValue)" + (c.profile.map { " (profile \($0.id))" } ?? "")
+                  + (c.vendors.isEmpty ? "" : "; anti-cheat: " + c.vendors.map(\.displayName).joined(separator: ", ")))
         }
     case "play":
         try play(options)
@@ -629,7 +730,7 @@ do {
         }
         try library.save(record, in: entry.root)
         guard let updated = library.entry(at: entry.root), let setup = updated.setup else { throw CLIError("Runtime missing") }
-        if args[1] == "program-dll" { try setup.applyProgramOverrides() }
+        if args[1] == "program-dll" { try setup.applySettings() }
         // The bridge carries the bottle's options: rebuild it.
         if entry.game.bridge != nil { _ = try GameLauncher.makeBridge(for: updated, shimBinary: try shimBinary(), home: library.home) }
         print("Saved. Diagnostics: \(record.options.diagnostics ? "on" : "off"); program overrides: \(record.options.programDllOverrides)")

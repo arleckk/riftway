@@ -78,8 +78,14 @@ final class LibraryModel {
         let shim = shimBinary
         Task {
             let newSchemes: [String] = await Task.detached {
-                guard let (_, schemes) = try? library.rediscover(entry) else { return [] }
-                if !schemes.isEmpty, entry.game.bridge != nil, let updated = library.entry(at: entry.root) {
+                guard let (_, schemes) = try? library.rediscover(entry), var updated = library.entry(at: entry.root) else { return [] }
+                // Launchers download the programs a profile matches on.
+                var profileChanged = false
+                if let applied = try? library.updateProfile(updated) {
+                    updated = applied
+                    profileChanged = true
+                }
+                if !schemes.isEmpty || profileChanged, updated.game.bridge != nil {
                     _ = try? GameLauncher.makeBridge(for: updated, shimBinary: shim, home: library.home)
                 }
                 return schemes
@@ -125,12 +131,12 @@ final class LibraryModel {
 
     // MARK: Installing
 
-    func install(_ report: InstallerReport) {
+    func install(_ report: InstallerReport, profile: GameProfile?) {
         guard let runtime = runtimes.first else {
             problem = "Primero instala un runtime (menú Archivo › Instalar runtime…)."
             return
         }
-        let job = InstallJob(installation: Installation(report: report, runtime: runtime, library: library))
+        let job = InstallJob(installation: Installation(report: report, runtime: runtime, library: library, profile: profile))
         self.job = job
         log.write("app: installing \(report.file.lastPathComponent) into \(job.installation.root.lastPathComponent)")
         let installation = job.installation
@@ -173,7 +179,12 @@ final class LibraryModel {
             do {
                 try library.save(game, in: root)
                 if let entry = library.entry(at: root) {
-                    let app = try await Task.detached { try GameLauncher.makeBridge(for: entry, shimBinary: shim, home: library.home) }.value
+                    let app = try await Task.detached {
+                        // A profile found only now, from the installed programs.
+                        let entry = (try library.updateProfile(entry)) ?? entry
+                        return try GameLauncher.makeBridge(for: entry, shimBinary: shim, home: library.home)
+                    }.value
+                    if let saved = library.entry(at: root) { game = saved.game }
                     game.bridge = app.path
                     try library.save(game, in: root)
                     if makeDefault {
@@ -252,6 +263,30 @@ final class LibraryModel {
             problem = "\(error)"
         }
         reload()
+    }
+
+    /// A profile that matches a game without one.
+    func suggestedProfile(for entry: LibraryEntry) -> GameProfile? {
+        library.profiles.match(ProfileQuery(game: entry.game))
+    }
+
+    /// Sets the game's profile (nil: none), writes it to the bottle and
+    /// rebuilds the bridge, which carries the bottle's options.
+    func setProfile(_ entry: LibraryEntry, _ profile: GameProfile?) {
+        let library = library
+        let shim = shimBinary
+        Task {
+            do {
+                try await Task.detached {
+                    let updated = try library.apply(profile, to: entry)
+                    if updated.game.bridge != nil { _ = try GameLauncher.makeBridge(for: updated, shimBinary: shim, home: library.home) }
+                }.value
+                log.write("app: \(entry.game.name) uses profile \(profile?.id ?? "none")")
+            } catch {
+                problem = "\(error)"
+            }
+            reload()
+        }
     }
 
     func showDriveC(_ entry: LibraryEntry) {

@@ -39,6 +39,22 @@ public struct GameOptions: Sendable, Codable, Equatable {
             && a.programDllOverrides == b.programDllOverrides && a.diagnostics == b.diagnostics
     }
 
+    /// These options under `player`'s: lists are joined, the player's values
+    /// win in maps, and the player's DPI setting replaces this one.
+    public func overridden(by player: GameOptions) -> GameOptions {
+        var result = self
+        result.mouselook += player.mouselook.filter { !mouselook.contains($0) }
+        result.gameMode += player.gameMode.filter { !gameMode.contains($0) }
+        if let dpi = player.appDPI { result.appDPI = dpi }
+        result.dllOverrides.merge(player.dllOverrides) { $1 }
+        for (program, overrides) in player.programDllOverrides {
+            result.programDllOverrides[program, default: [:]].merge(overrides) { $1 }
+        }
+        result.environment.merge(player.environment) { $1 }
+        result.diagnostics = player.diagnostics
+        return result
+    }
+
     enum CodingKeys: String, CodingKey {
         case mouselook, gameMode, appDPI, appDPIPrograms, dllOverrides, programDllOverrides, environment, diagnostics
     }

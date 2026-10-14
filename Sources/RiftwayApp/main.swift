@@ -119,14 +119,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// sheet for a file to a PNG, without a window or screen-recording permission.
 @MainActor
 func renderAnalysis(_ file: String, to output: String) -> Int32 {
-    let report = InstallerAnalyzer.analyze(URL(fileURLWithPath: file))
-    let view = ReportContent(report: report).frame(width: 560).background(Color(nsColor: .windowBackgroundColor))
-    let renderer = ImageRenderer(content: view)
-    renderer.scale = 2
-    guard let image = renderer.nsImage, let tiff = image.tiffRepresentation,
-          let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]),
-          (try? png.write(to: URL(fileURLWithPath: output))) != nil else { return 1 }
-    return 0
+    let url = URL(fileURLWithPath: file)
+    let report = InstallerAnalyzer.analyze(url)
+    let profiles = ProfileStore.standard()
+    var pending = PendingFile(url: url, report: report)
+    pending.profile = profiles.match(ProfileQuery(report: report, hash: profiles.usesHashes))
+    return snapshot(AnyView(AnalysisView(file: pending, remaining: 0, canInstall: true, close: {}, install: { _ in })), to: output)
 }
 
 /// Developer aid: `Riftway --render-library <out.png>` draws the library of

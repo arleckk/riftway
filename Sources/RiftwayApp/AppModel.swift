@@ -7,6 +7,8 @@ struct PendingFile: Identifiable {
     let id = UUID()
     let url: URL
     var report: InstallerReport?
+    /// The game's profile, found from the installer.
+    var profile: GameProfile?
 }
 
 @MainActor @Observable
@@ -22,6 +24,7 @@ final class AppModel {
     }
 
     private let log = Log()
+    let profiles = ProfileStore.standard()
     static let associationOfferedKey = "didOfferFileAssociation"
 
     var current: PendingFile? { queue.first }
@@ -62,10 +65,15 @@ final class AppModel {
 
     private func analyze(_ id: UUID, _ url: URL) {
         Task {
-            let report = await Task.detached(priority: .userInitiated) { InstallerAnalyzer.analyze(url) }.value
-            log.write("app: analyzed \(url.lastPathComponent): \(report.kind)")
+            let profiles = profiles
+            let (report, profile) = await Task.detached(priority: .userInitiated) {
+                let report = InstallerAnalyzer.analyze(url)
+                return (report, profiles.match(ProfileQuery(report: report, hash: profiles.usesHashes)))
+            }.value
+            log.write("app: analyzed \(url.lastPathComponent): \(report.kind)" + (profile.map { ", profile \($0.id)" } ?? ""))
             guard let index = queue.firstIndex(where: { $0.id == id }) else { return }
             queue[index].report = report
+            queue[index].profile = profile
         }
     }
 }

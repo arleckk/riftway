@@ -56,7 +56,28 @@ public struct BottleRecord: Codable, Sendable, Equatable {
     public var name: String
     public var runtimeVersion: String
     public var created: Date
+    /// The player's own options, on top of the profile's.
     public var options: GameOptions
+    /// The game's profile (`GameProfile.id`) and the revision last written to
+    /// the bottle's registry and `dxmt.conf`.
+    public var profile: String?
+    public var profileRevision: Int?
+
+    public init(name: String, runtimeVersion: String, created: Date, options: GameOptions,
+                profile: String? = nil, profileRevision: Int? = nil) {
+        self.name = name
+        self.runtimeVersion = runtimeVersion
+        self.created = created
+        self.options = options
+        self.profile = profile
+        self.profileRevision = profileRevision
+    }
+}
+
+/// This build of Riftway, as bottles report it (`HKLM\Software\Riftway`).
+/// Keep in step with `app/Info.plist`.
+public enum Riftway {
+    public static let version = "0.1.0"
 }
 
 /// Creates and prepares bottles on a Riftway runtime: `<root>/prefix` is the
@@ -81,22 +102,36 @@ public struct BottleSetup: Sendable {
 
     public var runtime: WineRuntime
     public var root: URL
+    /// The player's options.
     public var options: GameOptions
+    /// The game's profile; its options are under the player's.
+    public var profile: GameProfile?
+    /// The runtime's version, for the bottle's identity (`HKLM\Software\Riftway`).
+    public var runtimeVersion: String?
 
-    public init(runtime: WineRuntime, root: URL, options: GameOptions = GameOptions()) {
+    public init(runtime: WineRuntime, root: URL, options: GameOptions = GameOptions(), profile: GameProfile? = nil,
+                runtimeVersion: String? = nil) {
         self.runtime = runtime
         self.root = root
         self.options = options
+        self.profile = profile
+        self.runtimeVersion = runtimeVersion
+    }
+
+    /// What the bottle runs with: the profile's options, then the player's.
+    public var effectiveOptions: GameOptions {
+        guard let profile else { return options }
+        return profile.options.overridden(by: options)
     }
 
     public var prefix: URL { root.appendingPathComponent("prefix", isDirectory: true) }
     public var logs: URL { root.appendingPathComponent("logs", isDirectory: true) }
     public var bottle: Bottle {
-        Bottle(name: root.lastPathComponent, prefix: prefix.path, backend: .riftway(runtime: runtime, options: options))
+        Bottle(name: root.lastPathComponent, prefix: prefix.path, backend: .riftway(runtime: runtime, options: effectiveOptions))
     }
 
     public var environment: [String: String] {
-        RuntimeEnvironment.make(runtime: runtime, bottleRoot: root, prefix: prefix, options: options)
+        RuntimeEnvironment.make(runtime: runtime, bottleRoot: root, prefix: prefix, options: effectiveOptions)
     }
 
     /// A command from the runtime's `bin/`, in the bottle's environment. It starts
@@ -133,13 +168,13 @@ public struct BottleSetup: Sendable {
         try isolate()
 
         progress("Writing settings…")
-        try registry(#"HKCU\Software\Wine\Mac Driver"#, value: "RetinaMode", data: "Y")
+        var setup = self
+        setup.runtimeVersion = runtimeVersion
+        try setup.applySettings()
         try configureFontLinking()
-        let conf = prefix.appendingPathComponent("drive_c/ProgramData/Riftway/dxmt.conf")
-        try fm.createDirectory(at: conf.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if !fm.fileExists(atPath: conf.path) { try Data("# Written by Riftway from the game's profile.\n".utf8).write(to: conf) }
 
-        let record = BottleRecord(name: name, runtimeVersion: runtimeVersion, created: Date(), options: options)
+        let record = BottleRecord(name: name, runtimeVersion: runtimeVersion, created: Date(), options: options,
+                                  profile: profile?.id, profileRevision: profile?.revision)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -179,27 +214,47 @@ public struct BottleSetup: Sendable {
         try waitForServer()
     }
 
-    /// Writes `options.programDllOverrides` as Wine's per-program defaults,
-    /// replacing what an earlier profile wrote.
-    public func applyProgramOverrides() throws {
-        let key = #"HKEY_CURRENT_USER\Software\Wine\AppDefaults"#
-        _ = try ProcessRunner.run(plan("wine", ["reg.exe", "delete", key, "/f"]), log: logs.appendingPathComponent("registry.log"), timeout: 60)
-        guard !options.programDllOverrides.isEmpty else { return try waitForServer() }
+    /// Riftway's settings for the bottle, as one `.reg` file: Retina mode, the
+    /// bottle's identity, per-program DLL overrides and the profile's values.
+    /// Per-program overrides replace what an earlier profile wrote.
+    public var settingsFile: String {
         var text = "Windows Registry Editor Version 5.00\r\n"
-        for (program, overrides) in options.programDllOverrides.sorted(by: { $0.key < $1.key }) {
-            text += "\r\n[\(key)\\\(Self.regEscape(program))\\DllOverrides]\r\n"
-            for (dll, mode) in overrides.sorted(by: { $0.key < $1.key }) {
-                text += "\"\(Self.regEscape(dll))\"=\"\(Self.regEscape(mode))\"\r\n"
-            }
+        func key(_ path: String, _ values: [(String, String)]) {
+            text += "\r\n[\(path)]\r\n"
+            for (name, data) in values { text += "\"\(Self.regEscape(name))\"=\(data)\r\n" }
         }
-        let file = prefix.appendingPathComponent("drive_c/ProgramData/Riftway/program-overrides.reg")
-        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        key(#"HKEY_CURRENT_USER\Software\Wine\Mac Driver"#, [("RetinaMode", #""Y""#)])
+        // PRD-07 R3.1: what the game runs on, in both registry views.
+        let identity = [("Version", "\"\(Riftway.version)\""), ("Runtime", "\"\(Self.regEscape(runtimeVersion ?? "unknown"))\""),
+                        ("Platform", #""macOS""#)]
+        key(#"HKEY_LOCAL_MACHINE\Software\Riftway"#, identity)
+        key(#"HKEY_LOCAL_MACHINE\Software\Wow6432Node\Riftway"#, identity)
+        let appDefaults = #"HKEY_CURRENT_USER\Software\Wine\AppDefaults"#
+        text += "\r\n[-\(appDefaults)]\r\n"
+        for (program, overrides) in effectiveOptions.programDllOverrides.sorted(by: { $0.key < $1.key }) {
+            key(appDefaults + "\\" + Self.regEscape(program) + "\\DllOverrides",
+                overrides.sorted { $0.key < $1.key }.map { ($0.key, "\"\(Self.regEscape($0.value))\"") })
+        }
+        for (path, values) in (profile?.registry ?? [:]).sorted(by: { $0.key < $1.key }) {
+            guard let full = GameProfile.registryPath(path) else { continue }
+            key(full, values.sorted { $0.key < $1.key }.compactMap { name, value in GameProfile.registryData(value).map { (name, $0) } })
+        }
+        return text
+    }
+
+    /// Writes `settingsFile` and the profile's `dxmt.conf` into the bottle.
+    /// Safe to repeat: after a profile changes, or to move a bottle to another runtime.
+    public func applySettings() throws {
+        let folder = prefix.appendingPathComponent("drive_c/ProgramData/Riftway", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let conf = profile?.dxmtConfText ?? "# Written by Riftway from the game's profile.\n"
+        try Data(conf.utf8).write(to: folder.appendingPathComponent("dxmt.conf"))
         var data = Data([0xFF, 0xFE])
-        for unit in text.utf16 { data += [UInt8(unit & 0xFF), UInt8(unit >> 8)] }
-        try data.write(to: file)
-        let status = try ProcessRunner.run(plan("wine", ["reg.exe", "import", #"C:\ProgramData\Riftway\program-overrides.reg"#]),
+        for unit in settingsFile.utf16 { data += [UInt8(unit & 0xFF), UInt8(unit >> 8)] }
+        try data.write(to: folder.appendingPathComponent("settings.reg"))
+        let status = try ProcessRunner.run(plan("wine", ["reg.exe", "import", #"C:\ProgramData\Riftway\settings.reg"#]),
                                            log: logs.appendingPathComponent("registry.log"), timeout: 60)
-        guard status == 0 else { throw Failure.step("reg import program-overrides.reg", status: status) }
+        guard status == 0 else { throw Failure.step("reg import settings.reg", status: status) }
         try waitForServer()
     }
 

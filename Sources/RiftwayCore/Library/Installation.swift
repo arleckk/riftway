@@ -33,13 +33,16 @@ public final class Installation: @unchecked Sendable {
     private var process: Process?
     private var stopped = false
 
+    /// `profile` is the one found for the installer (`ProfileQuery(report:)`);
+    /// the bottle is created with it.
     public init(report: InstallerReport, name: String? = nil, runtime: RiftwayHome.InstalledRuntime,
-                library: Library = Library(), options: GameOptions = GameOptions()) {
+                library: Library = Library(), options: GameOptions = GameOptions(), profile: GameProfile? = nil) {
         self.report = report
-        self.name = name ?? report.displayName
+        self.name = name ?? profile?.name ?? report.displayName
         self.runtime = runtime
         self.library = library
-        setup = BottleSetup(runtime: runtime.runtime, root: library.home.newBottleRoot(for: self.name), options: options)
+        setup = BottleSetup(runtime: runtime.runtime, root: library.home.newBottleRoot(for: self.name), options: options,
+                            profile: profile, runtimeVersion: runtime.version)
     }
 
     public var root: URL { setup.root }
@@ -61,7 +64,6 @@ public final class Installation: @unchecked Sendable {
         try setup.create(name: name, runtimeVersion: runtime.version)
         try check()
         try PrefixSnapshot.capture(prefix: setup.prefix).write(to: root.appendingPathComponent(Library.baselineFile))
-        try setup.applyProgramOverrides()
 
         progress(.copyingInstaller)
         let folderName = UUID().uuidString.prefix(8).lowercased()
@@ -100,7 +102,6 @@ public final class Installation: @unchecked Sendable {
         try setup.create(name: name, runtimeVersion: runtime.version)
         try check()
         try PrefixSnapshot.capture(prefix: setup.prefix).write(to: root.appendingPathComponent(Library.baselineFile))
-        try setup.applyProgramOverrides()
 
         progress(.copyingInstaller)
         let (source, wholeFolder) = Self.portableSource(for: report.file)
@@ -178,10 +179,11 @@ public final class Installation: @unchecked Sendable {
         game.merge(result)
         // An installer's file name ("SuperRumble Installer_20250116") says less
         // than the name it registers for uninstalling ("Digimon SuperRumble").
-        if report.product == nil, let registered = game.uninstall?.displayName, !registered.isEmpty { game.name = registered }
+        if report.product == nil, setup.profile == nil, let registered = game.uninstall?.displayName, !registered.isEmpty { game.name = registered }
         if game.publisher == nil { game.publisher = game.uninstall?.publisher }
         if let primary { game.primary = primary }
         if let schemes { game.schemes = schemes }
+        if let scheme = setup.profile?.playLink, game.schemes.contains(scheme) { game.customLaunch = .link(scheme: scheme) }
         game.installer = Game.InstallerInfo(file: report.file.lastPathComponent, product: report.product, version: report.version,
                                             signer: { if case .signed(let signer, _) = report.signature { signer } else { nil } }(),
                                             origin: report.origin)

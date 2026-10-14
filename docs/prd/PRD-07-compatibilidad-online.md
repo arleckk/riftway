@@ -122,7 +122,7 @@ CrossOver.
 
 | ID | Requisito |
 |---|---|
-| R3.1 | Cada botella expone `HKLM\Software\Riftway` con `Version`, `Runtime` y `Platform` = `macOS`, documentado públicamente. |
+| R3.1 | ✅ Cada botella expone `HKLM\Software\Riftway` (y su vista de 32 bits, `Wow6432Node`) con `Version`, `Runtime` y `Platform` = `macOS`, documentado públicamente. Se escribe al crear la botella y cada vez que se aplica su perfil; ningún perfil puede cambiarla. |
 | R3.2 | Riftway no oculta `wine_get_version` ni ningún otro indicador de Wine. |
 | R3.3 | Página para desarrolladores: cómo detectar Riftway y cómo habilitar el juego (whitelist), con el mismo modelo que Proton y Steam Deck. |
 

@@ -63,6 +63,59 @@ enum ReportText {
     /// "Move Interactive Co., Ltd." stays as is; "Codeweavers, Inc" gains a period.
     static func sentence(_ text: String) -> String { text.hasSuffix(".") ? text : text + "." }
 
+    static func status(_ status: CompatibilityStatus) -> String {
+        switch status {
+        case .verified: "Verificado"
+        case .playable: "Jugable"
+        case .untested: "Sin probar"
+        case .blocked: "Bloqueado"
+        }
+    }
+
+    /// What the player reads about a game's compatibility, before installing
+    /// (no anti-cheat scan yet) or from its bottle.
+    static func compatibility(_ c: Compatibility, installed: Bool) -> (text: String, tone: Tone) {
+        var parts: [String] = []
+        switch c.status {
+        case .verified:
+            let tested = c.profile?.tested.map { " (\($0.date), macOS \($0.macos), \($0.hardware)\($0.online == true ? ", en línea" : ""))" } ?? ""
+            parts.append("Verificado: se probó de punta a punta en Riftway\(tested).")
+        case .playable:
+            parts.append("Jugable, con problemas conocidos.")
+        case .untested:
+            parts.append(installed ? "Sin datos de compatibilidad para este juego." : "Sin datos de compatibilidad. Al instalarlo, Riftway busca anti-cheats en lo que deje.")
+        case .blocked:
+            parts.append("Bloqueado: algo fuera del alcance de Riftway impide jugarlo.")
+        }
+        if let info = c.profile?.anticheat {
+            parts.append("Usa \(info.vendor.displayName)" + (info.kernel ? ", que necesita su driver de kernel." : " en modo usuario, sin driver."))
+        }
+        for finding in c.anticheat where finding.vendor != c.profile?.anticheat?.vendor || c.profile == nil {
+            parts.append(anticheat(finding))
+        }
+        if let notes = c.profile?.notes { parts.append(notes) }
+        let tone: Tone = switch c.status {
+        case .blocked: .problem
+        case .verified, .playable: .neutral
+        case .untested: c.anticheat.isEmpty ? .neutral : .caution
+        }
+        return (parts.joined(separator: " "), tone)
+    }
+
+    static func anticheat(_ f: AntiCheatFinding) -> String {
+        let name = f.vendor.displayName
+        if f.vendor.alwaysKernel || f.driver {
+            return "Instaló \(name), que necesita un driver de kernel; Wine no lo carga y el juego en línea no va a entrar."
+        }
+        switch f.vendor {
+        case .easyAntiCheat, .battlEye:
+            return "Usa \(name). Solo funciona si el estudio habilitó su modo para Wine"
+                + (f.protonModule ? " (lo hizo para Linux; en Mac no hay módulo todavía)." : "; en Mac no está confirmado.")
+        default:
+            return "Usa \(name) en modo usuario: puede funcionar (Digimon Super Rumble entra), pero no hay datos de este juego."
+        }
+    }
+
     static func size(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }

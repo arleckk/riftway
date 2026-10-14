@@ -22,6 +22,9 @@ cp app/Info.plist "$APP/Contents/Info.plist"
 cp "$BIN/RiftwayApp" "$APP/Contents/MacOS/Riftway"
 cp "$BIN/riftway-shim" "$BIN/riftway" "$APP/Contents/Helpers/"
 cp LICENSE "$APP/Contents/Resources/LICENSE" 2>/dev/null || true
+# Game profiles (PRD-05); the app and the CLI in Helpers read them from here.
+mkdir -p "$APP/Contents/Resources/Profiles"
+cp profiles/*.json "$APP/Contents/Resources/Profiles/"
 
 if [ "$IDENTITY" = "-" ]; then
     sign() { codesign --force --sign - --timestamp=none "$@"; }

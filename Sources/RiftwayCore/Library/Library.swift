@@ -23,6 +23,8 @@ public struct Game: Codable, Sendable, Equatable, Identifiable {
     public var bridge: String?
     /// What Play starts instead of `primary`, set by the player.
     public var customLaunch: CustomLaunch?
+    /// Anti-cheats found in the bottle (nil in libraries from before M4).
+    public var anticheat: [AntiCheatFinding]?
 
     /// A Play button the player configured.
     public enum CustomLaunch: Codable, Sendable, Equatable {
@@ -73,6 +75,16 @@ public struct Game: Codable, Sendable, Equatable, Identifiable {
             }
         }
         for driver in result.drivers where !drivers.contains(driver) { drivers.append(driver) }
+        var found = anticheat ?? []
+        for finding in result.anticheat {
+            if let i = found.firstIndex(where: { $0.vendor == finding.vendor }) {
+                found[i].driver = found[i].driver || finding.driver
+                found[i].protonModule = found[i].protonModule || finding.protonModule
+            } else {
+                found.append(finding)
+            }
+        }
+        anticheat = found
     }
 }
 
@@ -83,8 +95,15 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
     public var record: BottleRecord
     /// The runtime the bottle uses, when it is installed.
     public var runtime: WineRuntime?
+    /// The game's profile, when the record names one Riftway knows.
+    public var profile: GameProfile?
 
     public var id: String { game.id }
+
+    public var compatibility: Compatibility { Compatibility(profile: profile, anticheat: game.anticheat ?? []) }
+
+    /// The profile changed since the bottle's registry and `dxmt.conf` were written.
+    public var profileIsStale: Bool { profile.map { $0.revision != record.profileRevision } ?? false }
 
     /// The Riftway home's secret store (`<home>/Secrets`; bottles are `<home>/Bottles/<id>`).
     public var secrets: SecretStore {
@@ -92,15 +111,19 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
     }
 
     public var setup: BottleSetup? {
-        runtime.map { BottleSetup(runtime: $0, root: root, options: record.options) }
+        runtime.map { BottleSetup(runtime: $0, root: root, options: record.options, profile: profile, runtimeVersion: record.runtimeVersion) }
     }
 }
 
 /// Reads and writes the library: every `Bottles/<id>/game.json`.
 public struct Library: Sendable {
     public var home: RiftwayHome
+    public var profiles: ProfileStore
 
-    public init(home: RiftwayHome = .standard) { self.home = home }
+    public init(home: RiftwayHome = .standard, profiles: ProfileStore? = nil) {
+        self.home = home
+        self.profiles = profiles ?? .standard(home: home)
+    }
 
     static let gameFile = "game.json"
     static let recordFile = "bottle.json"
@@ -132,7 +155,8 @@ public struct Library: Sendable {
               let recordData = try? Data(contentsOf: root.appendingPathComponent(Self.recordFile)),
               let record = try? Self.decoder.decode(BottleRecord.self, from: recordData)
         else { return nil }
-        return LibraryEntry(game: game, root: root, record: record, runtime: home.runtime(version: record.runtimeVersion)?.runtime)
+        return LibraryEntry(game: game, root: root, record: record, runtime: home.runtime(version: record.runtimeVersion)?.runtime,
+                            profile: record.profile.flatMap(profiles.profile(id:)))
     }
 
     public func save(_ game: Game, in root: URL) throws {
@@ -155,5 +179,36 @@ public struct Library: Sendable {
         game.merge(result)
         try save(game, in: entry.root)
         return (game, game.schemes.filter { !before.contains($0) })
+    }
+
+    /// Sets the game's profile (nil: none) and writes it to the bottle: its
+    /// registry values, per-program overrides and `dxmt.conf`. A profile's
+    /// `play_link` becomes what Play starts, unless the player chose already.
+    /// The bottle's programs must be closed. Returns the updated entry.
+    @discardableResult
+    public func apply(_ profile: GameProfile?, to entry: LibraryEntry) throws -> LibraryEntry {
+        var entry = entry
+        entry.profile = profile
+        entry.record.profile = profile?.id
+        entry.record.profileRevision = profile?.revision
+        if let setup = entry.setup { try setup.applySettings() }
+        try save(entry.record, in: entry.root)
+        if let scheme = profile?.playLink, entry.game.customLaunch == nil, entry.game.schemes.contains(scheme) {
+            entry.game.customLaunch = .link(scheme: scheme)
+            try save(entry.game, in: entry.root)
+        }
+        return entry
+    }
+
+    /// After a session or an install: finds a profile for a game without one
+    /// (launchers add programs a profile matches on) and writes a profile that
+    /// changed since the bottle last applied it. Returns the updated entry
+    /// when something changed.
+    public func updateProfile(_ entry: LibraryEntry) throws -> LibraryEntry? {
+        if entry.record.profile == nil, let found = profiles.match(ProfileQuery(game: entry.game)) {
+            return try apply(found, to: entry)
+        }
+        if entry.profileIsStale, entry.runtime != nil { return try apply(entry.profile, to: entry) }
+        return nil
     }
 }

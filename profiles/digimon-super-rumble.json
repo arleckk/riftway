@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "id": "digimon-super-rumble",
+  "name": "Digimon Super Rumble",
+  "revision": 1,
+  "match": {
+    "product": ["Digimon SuperRumble", "Digimon Super Rumble"],
+    "company": ["Movegames", "Move Interactive Co., Ltd."],
+    "signer": ["Move Interactive Co., Ltd."],
+    "installer": ["SuperRumble Installer*.exe"],
+    "executables": ["SuperRumble Launcher.exe", "Client-Win64-Shipping.exe"]
+  },
+  "status": "verified",
+  "anticheat": { "vendor": "xigncode3", "kernel": false },
+  "tested": {
+    "date": "2026-10-13",
+    "macos": "26.6",
+    "hardware": "Mac15,10 (Apple M3 Max)",
+    "runtime": "rw-0.1.2-spike",
+    "online": true
+  },
+  "app_dpi": { "dpi": 192, "programs": ["SuperRumble Launcher.exe"] },
+  "program_dll_overrides": {
+    "SuperRumble Launcher.exe": { "winegstreamer": "" }
+  },
+  "registry": {
+    "HKCU/Software/Movegames/Digimon SuperRumble": { "DirectX11Use": "1" }
+  },
+  "play_link": "dsropen",
+  "notes": "Usa DirectX 11 (la casilla \"DirectX 11 실행\" del launcher): con D3D12 se queda en los logos. winegstreamer está apagado solo para el launcher, cuya vista web se cae al cerrar con él; el cliente conserva los videos. Jugar abre el sitio la primera vez; después usa el último enlace dsropen que el sitio mandó. Pendiente: sesiones largas."
+}

@@ -37,8 +37,9 @@ struct LibraryView: View {
             AnalysisView(file: file, remaining: model.remaining, canInstall: !library.runtimes.isEmpty,
                          close: { model.dismissCurrent() },
                          install: { report in
+                             let profile = file.profile
                              model.dismissCurrent()
-                             library.install(report)
+                             library.install(report, profile: profile)
                          })
         }
         .sheet(item: $library.job) { job in
@@ -153,11 +154,69 @@ private struct GameGrid: View {
         Button("Abrir logs") { library.showLogs(entry) }
         Button("Abrir disco C: en Finder") { library.showDriveC(entry) }
         Button("Reconstruir app puente") { library.rebuildBridge(entry) }
+        profileMenu(entry)
         Divider()
         if entry.game.uninstall?.uninstallString != nil {
             Button("Desinstalar juego…") { library.uninstall(entry) }
         }
         Button("Mover a la Papelera…", role: .destructive) { trashCandidate = entry }
+    }
+}
+
+extension GameGrid {
+    @ViewBuilder func profileMenu(_ entry: LibraryEntry) -> some View {
+        let isOpen = library.running.contains(entry.id)
+        if let profile = entry.profile {
+            Menu("Perfil: \(profile.name)") {
+                Text(ReportText.status(profile.status) + " · revisión \(profile.revision)")
+                Button(entry.profileIsStale ? "Aplicar la revisión nueva" : "Volver a aplicar") { library.setProfile(entry, profile) }
+                    .disabled(isOpen)
+                Button("Quitar perfil") { library.setProfile(entry, nil) }.disabled(isOpen)
+            }
+        } else if let suggested = library.suggestedProfile(for: entry) {
+            Button("Aplicar perfil de \(suggested.name)") { library.setProfile(entry, suggested) }.disabled(isOpen)
+        }
+    }
+}
+
+/// Verified, playable or blocked; nothing for untested games (PRD-05).
+struct StatusBadge: View {
+    let compatibility: Compatibility
+
+    var body: some View {
+        if compatibility.status != .untested || !compatibility.anticheat.isEmpty {
+            Text(compatibility.status == .untested ? "Anti-cheat" : ReportText.status(compatibility.status))
+                .font(.caption2.weight(.semibold))
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .foregroundStyle(color)
+                .background(Capsule().fill(color.opacity(0.15)))
+        }
+    }
+
+    private var color: Color {
+        switch compatibility.status {
+        case .verified: .green
+        case .playable: .yellow
+        case .untested: .orange
+        case .blocked: .red
+        }
+    }
+}
+
+/// The badge and the explanation, for the analysis and result screens.
+struct CompatibilityNotice: View {
+    let compatibility: Compatibility
+    let installed: Bool
+
+    var body: some View {
+        let text = ReportText.compatibility(compatibility, installed: installed)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("Compatibilidad").font(.callout.weight(.medium))
+                StatusBadge(compatibility: compatibility)
+            }
+            Notice(text: text.text, tone: text.tone, symbol: compatibility.status == .verified ? "checkmark.seal" : nil)
+        }
     }
 }
 
@@ -194,6 +253,10 @@ private struct GameTile: View {
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 190)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.08)))
+        .overlay(alignment: .topTrailing) {
+            StatusBadge(compatibility: entry.compatibility).padding(8)
+        }
+        .help(ReportText.compatibility(entry.compatibility, installed: true).text)
     }
 
     private var subtitle: String {
@@ -242,6 +305,10 @@ struct AnalysisView: View {
         VStack(alignment: .leading, spacing: 0) {
             if let report = file.report {
                 ReportContent(report: report)
+                if isInstaller || isPortable {
+                    CompatibilityNotice(compatibility: Compatibility(profile: file.profile), installed: false)
+                        .padding(.horizontal, 20).padding(.bottom, 16)
+                }
             } else {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
@@ -390,6 +457,10 @@ private struct InstallResultView: View {
                         Text("Así, el botón de jugar de su sitio web abre el juego en esta Mac.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
+                }
+                let compatibility = Compatibility(profile: job.installation.setup.profile, anticheat: result.anticheat)
+                if compatibility.profile != nil || !compatibility.anticheat.isEmpty {
+                    CompatibilityNotice(compatibility: compatibility, installed: true)
                 }
                 if !result.drivers.isEmpty {
                     Label("Instaló un driver de kernel (\(result.drivers.map(\.name).joined(separator: ", "))). Wine no puede cargarlo; si es un anti-cheat, el juego en línea podría no funcionar.",
