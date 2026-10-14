@@ -173,7 +173,10 @@ def assemble(version, identity):
     for architecture in ('x86_64', 'i686'):
         copy(MINGW / (architecture + '-w64-mingw32/share/mingw32/COPYING'),
              licenses / ('compiler-runtime/MinGW-' + architecture + '-COPYING'))
-    copy(PHASE2 / 'sources/soju' / ('soju-' + SOJU) / 'LICENSE', licenses / 'Soju-GPL-3.0')
+    # Soju's code in the runtime is its Dock icon patch (inside wine-v1-canvas.patch),
+    # which its NOTICE offers under Wine's LGPL-2.1+; its GPL-3.0 patches are left out
+    # (runtime/build.py).
+    copy(PHASE2 / 'sources/soju' / ('soju-' + SOJU) / 'NOTICE', licenses / 'Soju-NOTICE')
     copy(PHASE2 / 'dxmt-source/include/native/directx/COPYING.MinGW-w64.txt', licenses / 'DirectX-Headers-COPYING')
     mono_source = PHASE2 / 'downloads/wine-mono-10.4.1-src.tar.xz'
     if not mono_source.exists():

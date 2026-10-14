@@ -58,7 +58,8 @@ Pendiente de la fase 1 respecto a la receta de Recall: el bundle de Game Mode (p
 4. Decidir la convivencia DXMT/wined3d para D3D11 de 64 bits (sección 4.3).
 5. Cambiar el prefix-map a `/build/riftway`.
 6. Dos compilaciones limpias con el mismo manifiesto (reproducibilidad).
-7. Revisión de licencia del código de Soju antes de cualquier distribución.
+7. ✅ Revisión de licencia del código de Soju (2026-10-14, ver "Licencia del código de Soju"):
+   se quita `ncrypt-persisted-keys.patch` (GPL-3.0) desde `rw-0.1.3-spike`.
 8. ✅ Decodificadores de video y audio (`runtime/build.py media`, desde `rw-0.1.2-spike`):
    `winegstreamer` con el GLib 2.78.0 y el GStreamer 1.24.4 de las fuentes de CrossOver 26.3;
    H.264/HEVC por VideoToolbox y AAC/MP3 por AudioToolbox (plugin `applemedia`), sin FFmpeg
@@ -330,16 +331,16 @@ serializar cada lista desde el perfil (`game.<VAR>` como arreglo, PRD-05) con su
 | 2 | `dxmt-v1-performance.patch` (10014) | Conserva la compresión sin pérdida de Apple en render targets marcados UAV hasta su primer uso real; esperas CPU/GPU por evento; *frame pacing* (`dxgi.presentPacing*`); `DXMT_PREPARE_SHADERS=1`; grabador/replay y benchmarks por env; `d3d12stub` | MIXTO (mayormente genérico) | Conservar; probar con el corpus. La compresión parece siempre activa **[sin verificar si tiene interruptor]**: agregar uno si un juego falla |
 | 3 | `dxmt-portable-metal.patch` (18) | Pasa `metal`/`metallib` por `portable_metal.py` para no incrustar rutas | GENÉRICO (build) | Conservar |
 | 4 | `dxmt-metalfx-upscaling.patch` (1413) | Con `DXMT_ENABLE_NVEXT=1` se reporta una RTX 4090, NVAPI/NGX simulados, DLSS sobre MetalFX, `d3d12.dll` nulo para Streamline; requiere `nvngx.dll` firmado con Authenticode | ESPECÍFICO DE OVERWATCH (calibrado a su Streamline y rango DLSS) | Quitar en v1. Evaluar después por perfil; hacerse pasar por NVIDIA puede chocar con anti-cheats |
-| 5 | `wine-v1-canvas.patch` (1070) | Canvas fijo en pantalla completa nativa del Mac driver, foco y teclas al perder la ventana; solo actúa si DXMT registra una vista; trae opciones de Soju `WINE_NO_DOCK_ICON`, `WINE_DOCK_REOPEN_CMD`, `WINE_CUSTOM_FRAME`; `DXMT_CANVAS_DRAWABLES`/`OVERLAY`/`LOG` | GENÉRICO (opt-in) | Conservar. Revisión legal: incluye código marcado "Soju" (repo GPL-3.0) |
+| 5 | `wine-v1-canvas.patch` (1070) | Canvas fijo en pantalla completa nativa del Mac driver, foco y teclas al perder la ventana; solo actúa si DXMT registra una vista; trae opciones de Soju `WINE_NO_DOCK_ICON`, `WINE_DOCK_REOPEN_CMD`, `WINE_CUSTOM_FRAME`; `DXMT_CANVAS_DRAWABLES`/`OVERLAY`/`LOG` | GENÉRICO (opt-in) | Conservar. Su código marcado "Soju" viene de `winemac-no-dock-icon.patch`, que Soju ofrece con LGPL-2.1+ (ver "Licencia del código de Soju") |
 | 6 | `wine-mouselook.patch` (1223) | Mouse crudo con Game Controller framework para los ejecutables en `WINEMAC_MOUSELOOK` mientras ocultan y confinan el cursor; trackpads sin cambios | GENÉRICO (lista) | Conservar; lista desde el perfil |
 | 7 | `wine-portable-directory-boolean.patch` (16) | Corrige el ABI de un `BOOLEAN` en `NtQueryDirectoryObject` (bytes altos no definidos) | GENÉRICO (siempre activo) | Conservar |
-| 8 | Soju `ncrypt-persisted-keys.patch` | Llaves persistentes de ncrypt (por nombre; no se revisó su contenido) | GENÉRICO **[sin verificar el contenido]** | Conservar tras revisar contenido y licencia |
+| 8 | Soju `ncrypt-persisted-keys.patch` (401) | Llaves CNG con nombre que sobreviven al proceso (`%APPDATA%\Microsoft\Crypto\Keys`, RSA y ECDSA P-256/P-384); lo necesita el Epic Games Launcher para su prueba DPoP, sin la cual agota el límite de sesiones de la cuenta | GENÉRICO | **Quitado desde `rw-0.1.3-spike`**: es GPL-3.0 (ver "Licencia del código de Soju"). Volver a incluirlo si Soju lo ofrece con LGPL o llega a Wine |
 | 9 | `wine-server-registry-save.patch` (203) | El guardado periódico del registro se hace en un `fork` del wineserver (sin pausas de ~0.1 s cada 30 s); `WINESERVER_REGISTRY_LOG` | GENÉRICO (siempre activo) | Conservar |
 | 10 | `wine-ntdll-syscall-log.patch` (832) | Carga la librería Unix de un DLL sin `virtual_mutex` (quita congelamientos de 150–400 ms bajo Rosetta); `WINE_GAME_MODE`; diagnósticos `WINE_SYSCALL_LOG`, `WINE_IO_ERROR_LOG` | GENÉRICO | Conservar y generalizar: `WINE_GAME_MODE_APP` (paso 8) |
 | 11 | `wine-win32u-display-log.patch` (202) | `WINE_APP_DPI` da un DPI propio a los programas listados; `WINE_DISPLAY_LOG` | GENÉRICO (lista) | Conservar; útil para launchers Qt/CEF en Retina |
 | 12 | `wine-winemac-activation.patch` (770) | No resincroniza pantallas en cada clic; barras negras; resoluciones 1080p/1440p/4K 16:9 y 16:10 y cualquier tamaño que quepa; responde movimientos en pantalla completa con el marco del canvas; se queda minimizado tras Cmd-Tab; `WINEMAC_SCREEN_READBACK=1` devuelve imagen negra a lecturas de pantalla (para el anti-cheat de la versión coreana); `WINEMAC_INPUT_STATS` | MIXTO | Conservar y generalizar. `WINEMAC_SCREEN_READBACK` solo por perfil y con revisión: falsear capturas a un anti-cheat choca con el principio 1 del plan |
 
-Conteo: 8 genéricos (#3, #5, #6, #7, #8, #9, #10, #11; 7 si no se cuenta el de Soju),
+Conteo: 8 genéricos (#3, #5, #6, #7, #8, #9, #10, #11; 7 sin el de Soju, que se quitó),
 3 mixtos (#1, #2, #12) y 1 específico de Overwatch (#4).
 
 ---
@@ -482,13 +483,39 @@ Obligaciones para Riftway por cada versión distribuida (PRD-06 R10):
    reemplazar la librería) y la verificación estricta de `runtime.json` que rechaza
    cualquier archivo cambiado. Propuesta: un modo "runtime personalizado" que permita usar un
    runtime sin verificar, con advertencia.
-4. **Revisión legal** del código de Soju: su repositorio es GPL-3.0 (`docs/SOURCES.json`,
-   `script_license`), `wine-v1-canvas.patch` contiene bloques marcados "Soju" y se aplica
-   `ncrypt-persisted-keys.patch`. Hay que confirmar bajo qué licencia están esos parches
-   antes de mezclarlos en un Wine LGPL, sobre todo si Riftway no será de código abierto.
+4. ✅ Código de Soju: revisado (ver "Licencia del código de Soju"); el único parche GPL-3.0
+   se quitó.
 5. No distribuir `libd3dshared.dylib` ni nada de D3DMetal hasta la revisión legal.
 6. El código propio de Riftway puede tener cualquier licencia si solo se comunica con Wine
    como proceso aparte, pero eso también es una conclusión a confirmar con un abogado.
+
+### Licencia del código de Soju (revisión del 2026-10-14)
+
+No es una opinión legal; es lo que dicen las fuentes fijadas (Soju en `3a350b32`, Recall en
+el commit de `sources.lock.json`).
+
+- El repositorio de Soju es **GPL-3.0** (`LICENSE`; su README: "Scripts and docs in this
+  repo: GPL-3.0"). Su `NOTICE` ofrece **un solo parche con la licencia de Wine**:
+  "`patches/winemac-no-dock-icon.patch` … the patch itself is offered under LGPL-2.1+ to
+  match". Los otros tres (`ncrypt-persisted-keys`, `chromium-flags-append`,
+  `winemac-release-keys-on-focus-loss`) no tienen otra licencia, así que quedan en GPL-3.0.
+- Los tres bloques marcados "Soju" de `wine-v1-canvas.patch` (`WINE_NO_DOCK_ICON`,
+  `WINE_DOCK_REOPEN_CMD`, `WINE_CUSTOM_FRAME`) vienen de `winemac-no-dock-icon.patch`:
+  **LGPL-2.1+, sin problema**.
+- Los parches propios de Recall conservan la licencia de lo que parchan: "Existing Wine
+  LGPL-2.1-or-later terms retained" y DXMT LGPL-2.1-or-later (`THIRD_PARTY_NOTICES.md`).
+- Recall aplica `ncrypt-persisted-keys.patch` (`PATCHES` de `build_portable_runtime.py`), y
+  estaba en el `ncrypt.dll` de `rw-0.1.0` a `rw-0.1.2-spike`. Wine es LGPL-2.1-**or-later**,
+  así que la combinación se podría distribuir como GPL-3.0, pero todo el runtime quedaría en
+  GPL-3.0, con la cláusula de "información de instalación" chocando con la verificación
+  estricta de `runtime.json`.
+
+Decisión: **Riftway no aplica `ncrypt-persisted-keys.patch`** (`EXCLUDED_SOJU_PATCHES` en
+`runtime/build.py`; desviación registrada en el lock) y el runtime queda en LGPL-2.1+. El
+costo: el Epic Games Launcher vuelve a perder su llave DPoP en cada arranque (Wine sin
+parchar). Ningún juego del corpus lo necesita, salvo Epic; que DSR siga entrando en línea se confirma jugando con `rw-0.1.3-spike`.
+Para recuperarlo: pedir a Soju que lo ofrezca con LGPL-2.1+ como el del Dock, o que lo
+envíe a Wine. El runtime lleva `licenses/Soju-NOTICE` en lugar del texto de la GPL-3.0.
 
 ---
 

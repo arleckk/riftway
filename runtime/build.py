@@ -24,6 +24,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -38,6 +39,10 @@ DOWNLOADS = WORK / 'downloads'
 RECALL = WORK / 'recall'
 PHASE2 = WORK / 'phase-2'
 CLT_SDK = Path('/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk')
+# Soju patches Recall applies that Riftway leaves out (sources.lock.json,
+# deviations_from_recall): Soju's repository is GPL-3.0 and offers only its
+# Dock icon patch under Wine's LGPL, so these would make the runtime GPL-3.0.
+EXCLUDED_SOJU_PATCHES = ['ncrypt-persisted-keys.patch']
 
 
 def run(*args, **kwargs):
@@ -113,12 +118,41 @@ def tools(_):
         text = path.read_text()
         if 'range(1,5)' in text or 'range(1, 5)' in text:
             path.write_text(text.replace('range(1,5)', 'range(1,33)').replace('range(1, 5)', 'range(1, 33)'))
+    exclude_soju_patches()
     # Recall's assembler reads toolchains from <recall>/runtime/toolchains.
     link = RECALL / 'runtime/toolchains'
     link.parent.mkdir(exist_ok=True)
     if not link.is_symlink():
         link.symlink_to(TOOLS)
     check(None)
+
+
+def exclude_soju_patches():
+    """Takes the excluded patches out of Recall's list. A Wine tree patched with
+    another list is extracted again: Recall's recipe cannot patch a tree twice."""
+    script = RECALL / 'scripts/build_portable_runtime.py'
+    text = script.read_text()
+    for name in EXCLUDED_SOJU_PATCHES:
+        text = re.sub(r"\n    '" + re.escape(name) + r"': '[0-9a-f]{64}',", '', text)
+    script.write_text(text)
+    sources = PHASE2 / 'sources/wine'
+    marker = PHASE2 / 'sources/wine-excluded-patches.json'
+    wanted = json.dumps(EXCLUDED_SOJU_PATCHES) + '\n'
+    if sources.exists() and (not marker.exists() or marker.read_text() != wanted):
+        print('Extracting the Wine sources again, without ' + ', '.join(EXCLUDED_SOJU_PATCHES), flush=True)
+        shutil.rmtree(sources)
+        # The extracted files keep their archive dates, older than the objects built
+        # from the patched ones: drop those objects so make rebuilds them.
+        for name in EXCLUDED_SOJU_PATCHES:
+            patch = next((PHASE2 / 'sources/soju').glob('soju-*/patches/' + name))
+            for line in patch.read_text().splitlines():
+                if line.startswith('+++ b/'):
+                    built = PHASE2 / 'wine-build' / Path(line[6:]).parent
+                    for item in built.rglob('*') if built.is_dir() else []:
+                        if item.is_file() and item.suffix in ('.o', '.a', '.dll', '.so', '.res'):
+                            item.unlink()
+    if sources.parent.is_dir():
+        marker.write_text(wanted)
 
 
 def check(_):
@@ -209,6 +243,7 @@ def main():
     elif step == 'deps':
         recall_script('build_portable_dependencies.py', '--jobs', jobs())
     elif step == 'wine':
+        exclude_soju_patches()
         recall_script('build_portable_runtime.py', '--toolchains', TOOLS, '--jobs', jobs())
     elif step == 'media':
         run(sys.executable, ROOT / 'runtime/media.py', jobs())
