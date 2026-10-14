@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "note": "Pinned inputs for Riftway's runtime build. Recall's own scripts pin and verify the Wine, DXMT and dependency sources; this file pins Recall itself and the toolchains it expects.",
+  "recall": {
+    "repository": "https://github.com/AsherJN/recall",
+    "commit": "17bb9255e326ee00a7349c1278aaefa5d8fd4e0c",
+    "license": "Apache-2.0"
+  },
+  "toolchains": {
+    "llvm-mingw": {
+      "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/llvm-mingw-20251216-ucrt-macos-universal.tar.xz",
+      "sha256": "38bb5e48ec3e0ce95fb901f4efff0bd6ffa966d1b32539a6510af816a959d160",
+      "sha256_source": "GitHub release asset digest",
+      "directory": "llvm-mingw-20251216-ucrt-macos-universal"
+    },
+    "llvm-15": {
+      "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.7/clang%2Bllvm-15.0.7-x86_64-apple-darwin21.0.tar.xz",
+      "sha256": "d16b6d536364c5bec6583d12dd7e6cf841b9f508c4430d9ee886726bd9983f1c",
+      "bytes": 728344840,
+      "sha256_source": "GitHub publishes no digest for this release; pinned from the first download on 2026-10-13 after checking its size against the release asset",
+      "directory": "clang+llvm-15.0.7-x86_64-apple-darwin21.0"
+    },
+    "bison": {
+      "url": "https://ftp.gnu.org/gnu/bison/bison-3.8.2.tar.xz",
+      "sha256": "9bba0214ccf7f1079c5d59210045227bcf619519840ebfa80cd3849cff5a5bf2",
+      "sha256_source": "GNU release",
+      "directory": "bison-3.8.2"
+    },
+    "python": {
+      "packages": [
+        "meson==1.9.1",
+        "ninja==1.13.0"
+      ]
+    },
+    "python-x86_64": {
+      "packages": [
+        "meson==1.9.1",
+        "ninja==1.13.0"
+      ],
+      "interpreter": "/Library/Developer/CommandLineTools/usr/bin/python3 under Rosetta (arch -x86_64), so meson targets x86_64 natively"
+    }
+  },
+  "deviations_from_recall": [
+    "The --jobs limit of Recall's build scripts is raised from 4 to 32 in the local clone; it changes build parallelism only, not outputs.",
+    "Wine's winegstreamer (Recall builds --without-gstreamer) is built by runtime/media.py in a second Wine tree from the same patched source, against GLib and GStreamer from crossover-sources-26.3.0; decoders are macOS's (applemedia), no FFmpeg."
+  ],
+  "media": {
+    "note": "GLib 2.78.0 and GStreamer 1.24.4 come from crossover-sources-26.3.0 (already pinned by the Wine build). These are the GLib subprojects it fetches; runtime/media.py builds with --wrap-mode=nodownload.",
+    "pcre2": {
+      "url": "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.42/pcre2-10.42.tar.bz2",
+      "filename": "pcre2-10.42.tar.bz2",
+      "sha256": "8d36cd8cb6ea2a4c2bb358ff6411b0c788633a2a45dabbf1aeb4b701d1b5e840",
+      "sha256_source": "GStreamer 1.24.4 subprojects/pcre2.wrap",
+      "license": "BSD-3-Clause"
+    },
+    "pcre2_patch": {
+      "url": "https://wrapdb.mesonbuild.com/v2/pcre2_10.42-5/get_patch",
+      "filename": "pcre2_10.42-5_patch.zip",
+      "sha256": "7ba1730a3786c46f41735658a9884b09bc592af3840716e0ccc552e7ddf5630c",
+      "sha256_source": "GStreamer 1.24.4 subprojects/pcre2.wrap"
+    },
+    "proxy-libintl": {
+      "repository": "https://github.com/frida/proxy-libintl.git",
+      "commit": "c03e1a74b17fa7ec467e110130775409e4828a4c",
+      "tag": "0.4",
+      "license": "LGPL-2.1-or-later"
+    },
+    "gvdb": {
+      "repository": "https://gitlab.gnome.org/GNOME/gvdb.git",
+      "commit": "0854af0fdb6d527a8d1999835ac2c5059976c210",
+      "commit_source": "GLib 2.78.0 subprojects/gvdb.wrap",
+      "license": "LGPL-2.1-or-later"
+    }
+  }
+}

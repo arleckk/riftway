@@ -1,0 +1,21 @@
+// swift-tools-version: 6.0
+import PackageDescription
+
+let package = Package(
+    name: "Riftway",
+    platforms: [.macOS(.v14)],
+    products: [
+        .library(name: "RiftwayCore", targets: ["RiftwayCore"]),
+        .executable(name: "riftway", targets: ["riftway"]),
+        .executable(name: "riftway-shim", targets: ["RiftwayShim"]),
+        // The Mac app's executable; scripts/build-app.sh wraps it in Riftway.app.
+        .executable(name: "RiftwayApp", targets: ["RiftwayApp"]),
+    ],
+    targets: [
+        .target(name: "RiftwayCore"),
+        .executableTarget(name: "riftway", dependencies: ["RiftwayCore"]),
+        .executableTarget(name: "RiftwayShim", dependencies: ["RiftwayCore"]),
+        .executableTarget(name: "RiftwayApp", dependencies: ["RiftwayCore"]),
+        .testTarget(name: "RiftwayCoreTests", dependencies: ["RiftwayCore"]),
+    ]
+)
