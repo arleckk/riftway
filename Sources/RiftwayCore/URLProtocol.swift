@@ -30,7 +30,7 @@ public struct URLProtocolRegistration: Sendable, Equatable, Codable {
             let classes = #"Software\Classes"#
             for name in registry.subkeys(of: classes) {
                 let base = classes + "\\" + name
-                guard registry.value("URL Protocol", at: base) != nil,
+                guard registry.hasValue("URL Protocol", at: base),
                       isValidScheme(name),
                       let command = registry.value("", at: base + #"\shell\open\command"#),
                       !command.isEmpty

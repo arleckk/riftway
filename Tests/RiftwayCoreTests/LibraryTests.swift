@@ -56,6 +56,22 @@ func makeShortcut(target: String, workingDirectory: String? = nil, arguments: St
 }
 
 @Suite struct RegistryDwordTests {
+    @Test func urlProtocolMarkerOfAnyType() {
+        // Steam writes the marker as an empty REG_SZ in hex form.
+        let steam = WineRegistry(text: #"""
+        [Software\\Classes\\steam] 1
+        @="URL:steam protocol"
+        "URL Protocol"=hex(1):
+
+        [Software\\Classes\\steam\\Shell\\Open\\Command] 1
+        @="\"C:\\Program Files (x86)\\Steam\\steam.exe\" -- \"%1\""
+        """#)
+        #expect(steam.hasValue("url protocol", at: #"Software\Classes\steam"#))
+        let found = URLProtocolRegistration.discover(system: nil, user: steam)
+        #expect(found.map(\.scheme) == ["steam"])
+        #expect(found.first?.windowsExecutable == #"C:\Program Files (x86)\Steam\steam.exe"#)
+    }
+
     @Test func readsDwords() {
         let reg = WineRegistry(text: systemReg)
         #expect(reg.dword("Count", at: #"Software\Classes\other"#) == 1)

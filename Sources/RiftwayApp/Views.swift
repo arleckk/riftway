@@ -318,7 +318,8 @@ struct InstallView: View {
 
     private var title: String {
         switch job.phase {
-        case .result: job.result.isEmpty ? "El instalador no dejó nada para abrir" : "Listo: \(job.name)"
+        case .result: job.result.isEmpty ? (job.result.uninstall.isEmpty ? "El instalador no dejó nada para abrir" : "Componente instalado")
+                                         : "Listo: \(job.name)"
         case .failed: "No se completó la instalación"
         default: "Instalando \(job.name)"
         }
@@ -361,7 +362,10 @@ private struct InstallResultView: View {
     var body: some View {
         let result = job.result
         VStack(alignment: .leading, spacing: 14) {
-            if result.isEmpty {
+            if result.isEmpty, let component = result.uninstall.first?.displayName {
+                Text("Se instaló \(component), pero no dejó programas para abrir: es un componente, como Visual C++ o DirectX, que otros programas usan. Puedes conservar la botella para instalar ahí el programa que lo necesita.")
+                    .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else if result.isEmpty {
                 Text("No encontré accesos directos ni programas nuevos. Puede que cancelaras el asistente o que el instalador falló.")
                     .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             } else {

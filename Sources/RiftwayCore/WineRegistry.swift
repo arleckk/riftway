@@ -10,6 +10,8 @@ public struct WineRegistry: Sendable {
     public private(set) var keys: [String: [String: String]] = [:]
     /// Lowercased key path → lowercased value name → DWORD value.
     public private(set) var dwords: [String: [String: UInt32]] = [:]
+    /// Lowercased key path → lowercased names of every value, whatever its type.
+    public private(set) var valueNames: [String: Set<String>] = [:]
 
     public init(text: String) {
         var current: String?
@@ -34,6 +36,7 @@ public struct WineRegistry: Sendable {
                 guard let key = current else { continue }
                 let (entry, needsContinuation) = Self.parseValueLine(trimmed)
                 continuing = needsContinuation
+                if let name = Self.parseValueName(trimmed) { valueNames[key, default: []].insert(name.lowercased()) }
                 if let (name, value) = entry { keys[key, default: [:]][name.lowercased()] = value }
                 else if let (name, value) = Self.parseDword(trimmed) { dwords[key, default: [:]][name.lowercased()] = value }
             default:
@@ -56,6 +59,13 @@ public struct WineRegistry: Sendable {
     }
 
     public func hasKey(_ path: String) -> Bool { keys[path.lowercased()] != nil }
+
+    /// Whether `path` has a value called `name`, of any type: Windows marks URL
+    /// protocols by the presence of `URL Protocol`, which Steam writes as an
+    /// empty `hex(1):` rather than `""`.
+    public func hasValue(_ name: String, at path: String) -> Bool {
+        valueNames[path.lowercased()]?.contains(name.lowercased()) == true
+    }
 
     /// Every key path in the hive, lowercased.
     public var keyPaths: Set<String> { Set(keys.keys) }
@@ -117,6 +127,14 @@ public struct WineRegistry: Sendable {
             return (nil, false)
         }
         return (nil, rest.hasSuffix("\\"))
+    }
+
+    /// The name of a value line (`@` is the default value, ""), whatever its type.
+    static func parseValueName(_ line: Substring) -> String? {
+        let utf16 = Array(line.utf16)
+        if utf16.first == 0x40 { return utf16.count > 1 && utf16[1] == 0x3D ? "" : nil }
+        guard let (name, next) = readQuoted(utf16, from: 0), next < utf16.count, utf16[next] == 0x3D else { return nil }
+        return name
     }
 
     /// `"Type"=dword:00000001` → ("Type", 1).

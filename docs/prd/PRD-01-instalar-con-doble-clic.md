@@ -172,8 +172,17 @@ Implementado (`Sources/RiftwayCore/Library/`, `Sources/RiftwayApp/LibraryModel.s
   Configurar Jugar (lo descubierto, el último enlace que mandó el sitio o un comando),
   modo diagnóstico, overrides de DLL por programa, desinstalar, Papelera.
 
-Probado con DSR (NSIS) de punta a punta. Pendiente: el resto del corpus (Steam, GOG/Inno,
-MSI, WiX Burn).
+Corpus (2026-10-13, runtime `rw-0.1.2-spike`, instaladores en modo silencioso para la prueba):
+
+| Instalador | Formato | Tiempo | Resultado |
+|---|---|---|---|
+| Digimon SuperRumble | NSIS | 35–50 s | Jugar abre su sitio (`.url`); `dsropen`; desinstalador; ícono |
+| Steam 2.10.91.91 | NSIS | 36 s | `steam.exe`; `steam`/`steamlink` aparecen al cerrar la primera sesión (los registra Steam al arrancar, como `hex(1):`) |
+| Inno Setup 7.1.0 (en lugar de un juego de GOG, que requiere cuenta) | Inno | 53 s | `ISIDE.exe`, su FAQ (web), `.iss`, desinstalador |
+| Epic Games Launcher 20.3.3 | MSI | 58 s | `EpicGamesLauncher.exe`; `com.epicgames.launcher`; desinstalador MSI |
+| Visual C++ 2015-2022 x64 14.44 | WiX Burn | 36 s | Componente: sus dos MSI y las DLL en `system32`, sin programas (resultado esperado) |
+
+Pendiente para después: un instalador Inno de varias partes (`.bin`), con un juego de GOG.
 
 ## Fuera de alcance
 
