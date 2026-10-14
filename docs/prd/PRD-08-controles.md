@@ -179,6 +179,14 @@ como las demás opciones.
   si cambia y se cierra cuando termina la sesión de Wine.
 - La inician el puente (en cada lanzamiento) y la app (Jugar) si `controller.json` lo
   necesita.
-- Firma ad hoc: macOS liga el permiso de Accesibilidad a la compilación; al recompilar el
-  ayudante hay que volver a activarlo. Con Developer ID queda estable.
+- Firma ad hoc: macOS liga el permiso de Accesibilidad a la compilación (el `cdhash`). Al
+  recompilar, la entrada de la lista deja de servir aunque siga activada, y quitarla con
+  "–" no siempre basta: `tccutil reset Accessibility com.riftway.input` la borra de verdad;
+  luego se abre el ayudante, se activa en Ajustes y se vuelve a abrir. Por eso Riftway se
+  instala en `/Applications` y solo se reinstala cuando cambia el ayudante. Con Developer
+  ID el permiso sobrevive a las actualizaciones.
+- `argv[0]`: un programa abierto desde macOS lo tiene con su ruta dentro del prefijo; uno
+  abierto por otro programa de Windows (el juego de DSR, que abre `Client.exe`), con su
+  ruta de Windows (`C:\…`). En ese caso pertenece a la botella si su carpeta de trabajo
+  está en el prefijo. Probado con `cmd /c start` en el corpus.
 
