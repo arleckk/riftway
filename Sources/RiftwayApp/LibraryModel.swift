@@ -37,6 +37,7 @@ final class LibraryModel {
     /// Games started from the app whose Wine server may not be up yet.
     private var starting: [String: Date] = [:]
     private var watcher: Task<Void, Never>?
+    private var activation: NSObjectProtocol?
     private(set) var icons: [String: NSImage] = [:]
     /// The games with a cover of their own (an image the player chose).
     private(set) var covers: [String: NSImage] = [:]
@@ -70,6 +71,11 @@ final class LibraryModel {
     func startWatching() {
         guard watcher == nil else { return }
         checkStoreGames()
+        // Back from the launcher's window: what it installed or removed shows now.
+        activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
+                                                            queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkStoreGames() }
+        }
         watcher = Task { [weak self] in
             while !Task.isCancelled {
                 self?.refreshRunning()
@@ -103,9 +109,10 @@ final class LibraryModel {
         for id in closed {
             if let entry = entries.first(where: { $0.id == id }) { sessionEnded(entry) }
         }
-        // A launcher installs games while it is open: look every 30 s.
+        // A launcher installs and uninstalls games while it is open: look
+        // every 10 s (reading its manifests is cheap).
         ticks += 1
-        if ticks % 15 == 0, entries.contains(where: { $0.game.store == nil && now.contains($0.id) }) { checkStoreGames() }
+        if ticks % 5 == 0, entries.contains(where: { $0.game.store == nil && now.contains($0.id) }) { checkStoreGames() }
     }
 
     private func sessionEnded(_ entry: LibraryEntry) {
