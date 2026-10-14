@@ -126,6 +126,12 @@ tengan alguna. `rw-0.1.4-spike` se desinstaló; ninguna botella lo usaba.
    `runtime.json`, las pruebas de build y el `.tar.gz`; `runtime/compare.py A B` compara dos
    manifiestos archivo por archivo (entre `rw-0.1.8` y `rw-0.1.9` solo cambian los dos
    `winegstreamer.dll`, el parche de esa versión).
+
+   **`rw-0.1.10-spike` (2026-10-14)**, la primera versión con todo fijado (Xcode 26.6 y su
+   Metal Toolchain 17F109, `metal` 32023.883): frente a `rw-0.1.9` solo cambian
+   `winemetal.so` (SDK de las CLT) y `d3d11.dll` (shaders de Metal 26.6); lo de media es
+   idéntico con el `pkgconf` propio. DXMT recompilado desde cero da los mismos 4,938
+   archivos. Falta la corrida en GitHub Actions para compararla con esta.
 7. ✅ Revisión de licencia del código de Soju (2026-10-14, ver "Licencia del código de Soju"):
    se quita `ncrypt-persisted-keys.patch` (GPL-3.0) desde `rw-0.1.3-spike`.
 8. ✅ Decodificadores de video y audio (`runtime/build.py media`, desde `rw-0.1.2-spike`):

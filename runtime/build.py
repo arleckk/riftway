@@ -148,8 +148,9 @@ def check(_):
     need(xcode.returncode == 0 and f"Build version {pinned['xcode_build']}" in xcode.stdout,
          f"Xcode {pinned['xcode']} ({pinned['xcode_build']}) en {pinned['developer_dir']}, para los shaders de DXMT")
     metal = subprocess.run(['/usr/bin/xcrun', 'metal', '--version'], env=metal_env, capture_output=True, text=True)
-    need(metal.returncode == 0, f"Metal Toolchain de ese Xcode (DEVELOPER_DIR={pinned['developer_dir']} "
-                                'xcodebuild -downloadComponent MetalToolchain)')
+    need(metal.returncode == 0 and metal.stdout.startswith(pinned['metal_version']),
+         f"Metal Toolchain {pinned['metal_toolchain']} de ese Xcode (DEVELOPER_DIR={pinned['developer_dir']} "
+         'xcodebuild -downloadComponent MetalToolchain)')
     need((RECALL / '.git').exists(), f'Recall en {LOCK["recall"]["commit"][:8]}')
     need(' ' not in str(WORK), 'workspace sin espacios')
     if problems:

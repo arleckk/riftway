@@ -52,7 +52,9 @@
       "note": "DXMT's shaders (metal, metallib) through Recall's portable_metal.py, from this Xcode with its Metal Toolchain (xcodebuild -downloadComponent MetalToolchain); it can sit next to another Xcode",
       "xcode": "26.6",
       "xcode_build": "17F113",
-      "developer_dir": "/Applications/Xcode_26.6.app/Contents/Developer"
+      "developer_dir": "/Applications/Xcode_26.6.app/Contents/Developer",
+      "metal_toolchain": "17F109",
+      "metal_version": "Apple metal version 32023.883 (metalfe-32023.883)"
     }
   },
   "deviations_from_recall": [

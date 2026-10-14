@@ -71,7 +71,11 @@ def metal_toolchain(pinned):
     if metal.returncode:
         raise SystemExit(f"Xcode {pinned['xcode']} has no Metal Toolchain: DEVELOPER_DIR={pinned['developer_dir']} "
                          'xcodebuild -downloadComponent MetalToolchain')
-    return f"Xcode {pinned['xcode']} ({pinned['xcode_build']}); " + metal.stdout.splitlines()[0]
+    version = metal.stdout.splitlines()[0]
+    if version != pinned['metal_version']:
+        raise SystemExit(f"Xcode {pinned['xcode']}'s Metal Toolchain is {version!r}, not the pinned "
+                         f"{pinned['metal_version']!r} (Metal Toolchain {pinned['metal_toolchain']})")
+    return f"Xcode {pinned['xcode']} ({pinned['xcode_build']}); " + version
 
 
 def sha(path):
