@@ -16,8 +16,25 @@ public struct DiscoveredProgram: Codable, Sendable, Equatable, Identifiable, Has
     /// Windows path of the icon (`.ico` or a program) and its index.
     public var iconLocation: String?
     public var iconIndex: Int32
-    /// The `.lnk`, relative to `drive_c`.
+    /// The `.lnk`, relative to `drive_c`; empty for programs found without one.
     public var shortcut: String
+
+    public init(name: String, target: Target, workingDirectory: String? = nil, iconLocation: String? = nil,
+                iconIndex: Int32 = 0, shortcut: String = "") {
+        self.name = name
+        self.target = target
+        self.workingDirectory = workingDirectory
+        self.iconLocation = iconLocation
+        self.iconIndex = iconIndex
+        self.shortcut = shortcut
+    }
+
+    /// A program found by its path (a new `.exe`), named after its file.
+    public static func executable(_ windowsPath: String) -> DiscoveredProgram {
+        let file = windowsPath.split(whereSeparator: { $0 == "\\" || $0 == "/" }).last.map(String.init) ?? windowsPath
+        let name = file.lowercased().hasSuffix(".exe") ? String(file.dropLast(4)) : file
+        return DiscoveredProgram(name: name, target: .executable(path: windowsPath, arguments: nil), iconLocation: windowsPath)
+    }
 
     public var id: String {
         switch target {
@@ -278,9 +295,6 @@ public enum InstallDiscovery {
         }
         if let desktop = programs.first(where: { $0.shortcut.lowercased().contains("/desktop/") }) { return desktop }
         if let first = programs.first { return first }
-        guard let largest = executables.first else { return nil }
-        let name = String(largest.split(separator: "\\").last?.dropLast(4) ?? "")
-        return DiscoveredProgram(name: name, target: .executable(path: largest, arguments: nil), workingDirectory: nil,
-                                 iconLocation: largest, iconIndex: 0, shortcut: "")
+        return executables.first.map(DiscoveredProgram.executable)
     }
 }

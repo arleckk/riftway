@@ -5,7 +5,76 @@ import UniformTypeIdentifiers
 
 struct LibraryView: View {
     @Bindable var model: AppModel
+    @Bindable var library: LibraryModel
     @State private var isTargeted = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if library.runtimes.isEmpty {
+                RuntimeBanner { library.chooseRuntime() }
+            }
+            if library.entries.isEmpty {
+                DropZone(isTargeted: isTargeted) { model.chooseFiles() }
+            } else {
+                GameGrid(library: library) { model.chooseFiles() }
+                    .overlay {
+                        if isTargeted {
+                            RoundedRectangle(cornerRadius: 14).strokeBorder(Color.accentColor, lineWidth: 2).padding(8)
+                        }
+                    }
+            }
+        }
+        .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
+            for provider in providers {
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    guard let url else { return }
+                    Task { @MainActor in model.open([url]) }
+                }
+            }
+            return true
+        }
+        .sheet(item: Binding(get: { model.current }, set: { if $0 == nil { model.dismissCurrent() } })) { file in
+            AnalysisView(file: file, remaining: model.remaining, canInstall: !library.runtimes.isEmpty,
+                         close: { model.dismissCurrent() },
+                         install: { report in
+                             model.dismissCurrent()
+                             library.install(report)
+                         })
+        }
+        .sheet(item: $library.job) { job in
+            InstallView(job: job, library: library)
+        }
+        .sheet(isPresented: $model.showsAssociationOffer) {
+            AssociationOfferView { model.associationOfferAnswered(accept: $0) }
+        }
+        .alert("Riftway", isPresented: Binding(get: { library.problem != nil }, set: { if !$0 { library.problem = nil } })) {
+            Button("Aceptar") { library.problem = nil }
+        } message: {
+            Text(library.problem ?? "")
+        }
+        .onAppear { library.reload() }
+    }
+}
+
+private struct RuntimeBanner: View {
+    let choose: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "shippingbox").foregroundStyle(.orange)
+            Text("Falta el runtime de Windows. Mientras no haya descargas, elige un runtime compilado.")
+                .font(.callout)
+            Spacer()
+            Button("Elegir runtime…", action: choose)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(Color.orange.opacity(0.1))
+    }
+}
+
+private struct DropZone: View {
+    let isTargeted: Bool
+    let choose: () -> Void
 
     var body: some View {
         VStack(spacing: 18) {
@@ -18,7 +87,7 @@ struct LibraryView: View {
                 Text("Archivos .exe o .msi. También puedes darles doble clic en Finder.")
                     .foregroundStyle(.secondary)
             }
-            Button("Elegir archivo…") { model.chooseFiles() }
+            Button("Elegir archivo…", action: choose)
                 .keyboardShortcut("o")
                 .controlSize(.large)
         }
@@ -30,28 +99,126 @@ struct LibraryView: View {
                 .foregroundStyle(isTargeted ? Color.accentColor : Color.secondary.opacity(0.4))
                 .padding(20)
         }
-        .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
-            for provider in providers {
-                _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                    guard let url else { return }
-                    Task { @MainActor in model.open([url]) }
+    }
+}
+
+private struct GameGrid: View {
+    @Bindable var library: LibraryModel
+    let add: () -> Void
+    @State private var trashCandidate: LibraryEntry?
+
+    var body: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 18)], spacing: 18) {
+                ForEach(library.entries) { entry in
+                    GameTile(entry: entry, icon: library.icons[entry.id], isRunning: library.running.contains(entry.id),
+                             play: { library.play(entry) }, stop: { library.stop(entry) })
+                        .contextMenu { menu(entry) }
+                }
+                AddTile(action: add)
+            }
+            .padding(20)
+        }
+        .confirmationDialog("¿Mover \(trashCandidate?.game.name ?? "") a la Papelera?",
+                            isPresented: Binding(get: { trashCandidate != nil }, set: { if !$0 { trashCandidate = nil } }),
+                            presenting: trashCandidate) { entry in
+            Button("Mover a la Papelera", role: .destructive) { library.moveToTrash(entry) }
+        } message: { _ in
+            Text("Se mueven a la Papelera la botella (con el juego y sus partidas locales) y su app puente. Puedes recuperarlas desde ahí.")
+        }
+    }
+
+    @ViewBuilder private func menu(_ entry: LibraryEntry) -> some View {
+        Button("Jugar") { library.play(entry) }
+        let others = entry.game.programs.filter { $0.id != entry.game.primary?.id }
+        if !others.isEmpty {
+            Menu("Abrir otro programa") {
+                ForEach(others) { program in Button(program.name) { library.play(entry, program: program) } }
+            }
+        }
+        if library.running.contains(entry.id) {
+            Button("Terminar todos sus procesos") { library.stop(entry) }
+        }
+        Divider()
+        Toggle("Modo diagnóstico", isOn: Binding(get: { entry.record.options.diagnostics },
+                                                 set: { library.setDiagnostics(entry, $0) }))
+        Button("Abrir logs") { library.showLogs(entry) }
+        Button("Abrir disco C: en Finder") { library.showDriveC(entry) }
+        Button("Reconstruir app puente") { library.rebuildBridge(entry) }
+        Divider()
+        Button("Mover a la Papelera…", role: .destructive) { trashCandidate = entry }
+    }
+}
+
+private struct GameTile: View {
+    let entry: LibraryEntry
+    let icon: NSImage?
+    let isRunning: Bool
+    let play: () -> Void
+    let stop: () -> Void
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Group {
+                if let icon {
+                    Image(nsImage: icon).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+                } else {
+                    Image(systemName: "gamecontroller").font(.system(size: 40, weight: .light)).foregroundStyle(.secondary)
                 }
             }
-            return true
+            .frame(width: 72, height: 72)
+            VStack(spacing: 2) {
+                Text(entry.game.name).font(.headline).lineLimit(2).multilineTextAlignment(.center)
+                Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            if isRunning {
+                Button(action: stop) { Label("Detener", systemImage: "stop.fill") }
+            } else {
+                Button(action: play) { Label("Jugar", systemImage: "play.fill") }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(entry.game.primary == nil || (entry.runtime == nil && entry.game.primary?.windowsPath != nil))
+            }
         }
-        .sheet(item: Binding(get: { model.current }, set: { if $0 == nil { model.dismissCurrent() } })) { file in
-            AnalysisView(file: file, remaining: model.remaining) { model.dismissCurrent() }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 190)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.08)))
+    }
+
+    private var subtitle: String {
+        if isRunning { return "Abierto" }
+        if entry.runtime == nil { return "Falta el runtime \(entry.record.runtimeVersion)" }
+        if entry.game.primary == nil { return "Sin programa para abrir" }
+        if case .web = entry.game.primary?.target { return "Se abre desde su sitio" }
+        return entry.game.publisher ?? ""
+    }
+}
+
+private struct AddTile: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 10) {
+                Image(systemName: "plus").font(.system(size: 30, weight: .light))
+                Text("Instalar un juego…").font(.callout)
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, minHeight: 190)
+            .background {
+                RoundedRectangle(cornerRadius: 12).strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+                    .foregroundStyle(Color.secondary.opacity(0.4))
+            }
         }
-        .sheet(isPresented: $model.showsAssociationOffer) {
-            AssociationOfferView { model.associationOfferAnswered(accept: $0) }
-        }
+        .buttonStyle(.plain)
     }
 }
 
 struct AnalysisView: View {
     let file: PendingFile
     let remaining: Int
+    let canInstall: Bool
     let close: () -> Void
+    let install: (InstallerReport) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -66,21 +233,171 @@ struct AnalysisView: View {
             }
             Divider()
             HStack {
-                if file.report != nil, case .installer = file.report!.kind {
-                    Text("La instalación llega en el siguiente hito.")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
+                if let note { Text(note).font(.callout).foregroundStyle(.secondary) }
                 Spacer()
                 Button("Mostrar en Finder") { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }
                 Button(remaining > 0 ? "Siguiente (\(remaining))" : "Cerrar", action: close)
                     .keyboardShortcut(.cancelAction)
-                Button("Instalar") {}
+                Button("Instalar") { if let report = file.report { install(report) } }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(true)
+                    .disabled(!isInstaller || !canInstall)
             }
             .padding(16)
         }
         .frame(width: 560)
+    }
+
+    private var isInstaller: Bool {
+        if case .installer = file.report?.kind { return true }
+        return false
+    }
+
+    private var note: String? {
+        guard let report = file.report else { return nil }
+        if case .portable = report.kind { return "Agregar programas sin instalador llega pronto." }
+        if isInstaller && !canInstall { return "Falta el runtime de Windows." }
+        return nil
+    }
+}
+
+struct InstallView: View {
+    @Bindable var job: InstallJob
+    let library: LibraryModel
+    @State private var confirmStop = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(title).font(.title3.weight(.semibold))
+            switch job.phase {
+            case .running(let stage):
+                running(stage)
+            case .stopping:
+                HStack(spacing: 10) { ProgressView().controlSize(.small); Text("Deteniendo el instalador…") }
+            case .result:
+                InstallResultView(job: job, library: library)
+            case .failed(let message):
+                Text(message).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Spacer()
+                    Button("Conservar la botella") { library.discardInstall(job, keepBottle: true) }
+                    Button("Mover la botella a la Papelera") { library.discardInstall(job, keepBottle: false) }
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+        .padding(22)
+        .frame(width: 560)
+        .interactiveDismissDisabled()
+    }
+
+    private var title: String {
+        switch job.phase {
+        case .result: job.result.isEmpty ? "El instalador no dejó nada para abrir" : "Listo: \(job.name)"
+        case .failed: "No se completó la instalación"
+        default: "Instalando \(job.name)"
+        }
+    }
+
+    @ViewBuilder private func running(_ stage: Installation.Stage) -> some View {
+        HStack(spacing: 10) {
+            ProgressView().controlSize(.small)
+            Text(stageText(stage))
+        }
+        if stage == .runningInstaller {
+            Text("El asistente del instalador se abrió en su propia ventana. Complétalo ahí; Riftway sigue cuando termine.")
+                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        HStack {
+            Spacer()
+            Button("Detener…") { confirmStop = true }
+        }
+        .confirmationDialog("¿Detener la instalación?", isPresented: $confirmStop) {
+            Button("Detener", role: .destructive) { library.stopInstall(job) }
+        } message: {
+            Text("Se cierran el instalador y todo lo que haya abierto en esta botella.")
+        }
+    }
+
+    private func stageText(_ stage: Installation.Stage) -> String {
+        switch stage {
+        case .creatingBottle: "Preparando una botella nueva de Windows…"
+        case .copyingInstaller: "Copiando el instalador a la botella…"
+        case .runningInstaller: "Esperando al instalador…"
+        case .discovering: "Buscando lo que instaló…"
+        }
+    }
+}
+
+private struct InstallResultView: View {
+    @Bindable var job: InstallJob
+    let library: LibraryModel
+
+    var body: some View {
+        let result = job.result
+        VStack(alignment: .leading, spacing: 14) {
+            if result.isEmpty {
+                Text("No encontré accesos directos ni programas nuevos. Puede que cancelaras el asistente o que el instalador falló.")
+                    .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else {
+                let programs = choices(result)
+                if !programs.isEmpty {
+                    Picker("Jugar abre", selection: $job.primaryID) {
+                        ForEach(programs) { program in
+                            Text(label(program)).tag(Optional(program.id))
+                        }
+                    }
+                }
+                if !result.protocols.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Enlaces que abre desde macOS").font(.callout.weight(.medium))
+                        ForEach(result.protocols, id: \.scheme) { registration in
+                            Toggle("\(registration.scheme):", isOn: Binding(
+                                get: { job.schemes.contains(registration.scheme) },
+                                set: { if $0 { job.schemes.insert(registration.scheme) } else { job.schemes.remove(registration.scheme) } }))
+                        }
+                        Toggle("Abrir siempre estos enlaces con el juego", isOn: $job.makeDefaultHandler)
+                            .disabled(job.schemes.isEmpty)
+                        Text("Así, el botón de jugar de su sitio web abre el juego en esta Mac.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if !result.drivers.isEmpty {
+                    Label("Instaló un driver de kernel (\(result.drivers.map(\.name).joined(separator: ", "))). Wine no puede cargarlo; si es un anti-cheat, el juego en línea podría no funcionar.",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            HStack {
+                Spacer()
+                if result.isEmpty {
+                    Button("Conservar la botella") { library.discardInstall(job, keepBottle: true) }
+                    Button("Mover la botella a la Papelera") { library.discardInstall(job, keepBottle: false) }
+                        .keyboardShortcut(.defaultAction)
+                } else {
+                    Button("Agregar a la biblioteca") { library.finishInstall(job) }
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+    }
+
+    /// Shortcuts first, then the largest new programs, in case the installer's
+    /// shortcut is not the one to play.
+    private func choices(_ result: InstallResult) -> [DiscoveredProgram] {
+        var list = result.programs
+        if let primary = result.primary, !list.contains(where: { $0.id == primary.id }) { list.insert(primary, at: 0) }
+        for path in result.executables.prefix(4) {
+            let program = DiscoveredProgram.executable(path)
+            if !list.contains(where: { $0.id == program.id }) { list.append(program) }
+        }
+        return list
+    }
+
+    private func label(_ program: DiscoveredProgram) -> String {
+        switch program.target {
+        case .web(let url): "\(program.name) (sitio: \(URL(string: url)?.host ?? url))"
+        case .executable(let path, _): "\(program.name) (\(path.split(separator: "\\").last ?? ""))"
+        }
     }
 }
 

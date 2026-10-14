@@ -7,6 +7,7 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
+    let library = LibraryModel()
     private var window: NSWindow?
     private var settingsWindow: NSWindow?
     /// Files that arrive before the window exists (a cold launch from Finder).
@@ -18,11 +19,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 480),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 560),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Riftway"
         window.contentMinSize = NSSize(width: 600, height: 420)
-        window.contentViewController = NSHostingController(rootView: LibraryView(model: model))
+        window.contentViewController = NSHostingController(rootView: LibraryView(model: model, library: library))
         window.setFrameAutosaveName("Main")
         if !window.setFrameUsingName("Main") { window.center() }
         window.isReleasedWhenClosed = false
@@ -52,6 +53,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func openDocument(_ sender: Any?) {
         showMain()
         model.chooseFiles()
+    }
+
+    @objc func chooseRuntime(_ sender: Any?) {
+        showMain()
+        library.chooseRuntime()
     }
 
     @objc func showSettings(_ sender: Any?) {
@@ -84,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fileItem = NSMenuItem()
         let file = NSMenu(title: "Archivo")
         file.addItem(withTitle: "Abrir instalador…", action: #selector(openDocument(_:)), keyEquivalent: "o")
+        file.addItem(withTitle: "Instalar runtime…", action: #selector(chooseRuntime(_:)), keyEquivalent: "")
         file.addItem(withTitle: "Cerrar ventana", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         fileItem.submenu = file
         main.addItem(fileItem)
@@ -113,7 +120,55 @@ func renderAnalysis(_ file: String, to output: String) -> Int32 {
     return 0
 }
 
+/// Developer aid: `Riftway --render-library <out.png>` draws the library of
+/// $RIFTWAY_HOME, and `--render-install <bottle> <out.png>` the result screen
+/// for an installed bottle (its discovery against its baseline).
+@MainActor
+func renderLibrary(to output: String, installedBottle: String? = nil) -> Int32 {
+    let library = LibraryModel()
+    library.reload()
+    let view: AnyView
+    if let installedBottle {
+        let root = URL(fileURLWithPath: installedBottle, isDirectory: true)
+        guard let runtime = library.runtimes.first,
+              let baseline = try? PrefixSnapshot.read(from: root.appendingPathComponent(Library.baselineFile)) else { return 1 }
+        let report = InstallerAnalyzer.analyze(URL(fileURLWithPath: "/dev/null"))
+        let job = InstallJob(installation: Installation(report: report, name: "Digimon SuperRumble", runtime: runtime))
+        job.result = InstallDiscovery.discover(prefix: root.appendingPathComponent("prefix"), baseline: baseline, product: "Digimon SuperRumble")
+        job.primaryID = job.result.primary?.id
+        job.schemes = Set(job.result.protocols.map(\.scheme))
+        job.phase = .result
+        view = AnyView(InstallView(job: job, library: library))
+    } else {
+        view = AnyView(LibraryView(model: AppModel(), library: library).frame(width: 820, height: 560))
+    }
+    return snapshot(view, to: output)
+}
+
+/// Draws a view with its AppKit controls (ImageRenderer leaves them out) in an
+/// offscreen window, without screen-recording permission.
+@MainActor
+func snapshot(_ view: AnyView, to output: String) -> Int32 {
+    let host = NSHostingView(rootView: view.background(Color(nsColor: .windowBackgroundColor)))
+    let size = host.fittingSize
+    host.frame = NSRect(origin: .zero, size: NSSize(width: max(size.width, 100), height: max(size.height, 100)))
+    let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+    window.contentView = host
+    host.layoutSubtreeIfNeeded()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return 1 }
+    host.cacheDisplay(in: host.bounds, to: rep)
+    guard let png = rep.representation(using: .png, properties: [:]), (try? png.write(to: URL(fileURLWithPath: output))) != nil else { return 1 }
+    return 0
+}
+
 let arguments = CommandLine.arguments
+if let index = arguments.firstIndex(of: "--render-library"), arguments.count > index + 1 {
+    exit(MainActor.assumeIsolated { renderLibrary(to: arguments[index + 1]) })
+}
+if let index = arguments.firstIndex(of: "--render-install"), arguments.count > index + 2 {
+    exit(MainActor.assumeIsolated { renderLibrary(to: arguments[index + 2], installedBottle: arguments[index + 1]) })
+}
 if let index = arguments.firstIndex(of: "--render-analysis"), arguments.count > index + 2 {
     exit(MainActor.assumeIsolated { renderAnalysis(arguments[index + 1], to: arguments[index + 2]) })
 }
