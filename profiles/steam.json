@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "id": "steam",
+  "name": "Steam",
+  "revision": 1,
+  "match": {
+    "product": [
+      "Steam"
+    ],
+    "signer": [
+      "Valve Corp."
+    ],
+    "installer": [
+      "SteamSetup.exe"
+    ],
+    "executables": [
+      "steam.exe"
+    ]
+  },
+  "status": "verified",
+  "tested": {
+    "date": "2026-10-14",
+    "macos": "26.6",
+    "hardware": "Mac15,10 (Apple M3 Max)",
+    "runtime": "rw-0.1.11-spike",
+    "online": true
+  },
+  "program_args": {
+    "steamwebhelper.exe": "--in-process-gpu --disable-gpu --disable-gpu-compositing --no-sandbox"
+  },
+  "notes": "Steam's interface (steamwebhelper, Chromium) composites in a separate process that draws into the browser's window, which Wine does not show: the window stays black. In-process and in software it shows, as with Proton. The first launch can stop on 'Failed to load steamui.dll' when a package of the update fails to download; launching again finishes the update."
+}

@@ -47,6 +47,16 @@ func profileJSON(_ extra: String = "", status: String = "playable", match: Strin
         #expect(GameProfile.registryData(#"C:\a "b""#) == #""C:\\a \"b\"""#)
     }
 
+    @Test func programArgumentsReachTheRuntime() throws {
+        let profile = try GameProfile.load(profileJSON(#", "program_args": {"b.exe": "-x", "steamwebhelper.exe": "--in-process-gpu --disable-gpu"}"#))
+        #expect(profile.options.environment[GameProfile.appendArgsVariable] == "b.exe=-x;steamwebhelper.exe=--in-process-gpu --disable-gpu")
+        #expect(try GameProfile.load(profileJSON()).options.environment[GameProfile.appendArgsVariable] == nil)
+        // The runtime splits on ; and =, and matches a file name.
+        for entry in [#""a.exe": "-x;b.exe=-y""#, #""a.dll": "-x""#, #""C:\\a.exe": "-x""#, #""a.exe": " ""#] {
+            #expect(throws: (any Error).self) { try GameProfile.load(profileJSON(", \"program_args\": {\(entry)}")) }
+        }
+    }
+
     @Test func matchPriority() {
         func profile(_ id: String, _ match: GameProfile.Match) -> GameProfile {
             GameProfile(id: id, name: id, match: match, status: .playable)

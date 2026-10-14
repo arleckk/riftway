@@ -57,6 +57,7 @@ Los perfiles viven en [`profiles/`](../../profiles/), un archivo por juego con n
 | `env`, `dll_overrides` | Entorno y overrides de DLL de la botella |
 | `game` | Listas de ejecutables para los parches del runtime: `WINEMAC_MOUSELOOK` (mouse crudo), `WINE_GAME_MODE` (arrancan desde el bundle de Game Mode de la botella, con el nombre e ícono del juego) |
 | `app_dpi`, `program_dll_overrides` | DPI propio de un launcher; overrides de DLL por ejecutable (`AppDefaults`) |
+| `program_args` | Argumentos que el runtime agrega a un programa donde sea que arranque, por nombre de archivo (`{"steamwebhelper.exe": "--in-process-gpu"}`): Riftway los pasa en `RIFTWAY_APPEND_ARGS` y el parche `wine-append-args` los agrega al crear el proceso, también cuando lo arranca otro programa (Steam a su webhelper) o un enlace. Sin `;` ni `=`, y solo `.exe` |
 | `registry` | Valores de texto o `dword:XXXXXXXX`; solo `HKCU` y `HKLM/Software`, nunca servicios, drivers ni la clave de identidad de Riftway |
 | `dxmt_conf` | Líneas `clave = valor` de `C:\ProgramData\Riftway\dxmt.conf` |
 | `d3d11` | `dxmt` (por defecto) o `wined3d`: experimental, para juegos D3D11 en feature level 9_x o para comparar al diagnosticar (RUNTIME-BUILD.md 4.3). El jugador puede cambiarlo (`riftway d3d11 <juego> dxmt\|wined3d\|profile`) |

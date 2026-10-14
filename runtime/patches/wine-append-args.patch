@@ -1,0 +1,51 @@
+--- a/dlls/kernelbase/process.c
++++ b/dlls/kernelbase/process.c
+@@ -500,6 +500,39 @@
+     return ret;
+ }
+ 
++/* Riftway: arguments appended to the command line of one program, by file
++ * name, from RIFTWAY_APPEND_ARGS ("steamwebhelper.exe=--in-process-gpu;other.exe=-x").
++ * A game's profile sets it. Chromium's out-of-process compositor (Steam's
++ * webhelper) draws into another process's window, which Wine does not show;
++ * Proton appends the same switches to steamwebhelper.exe. */
++static WCHAR *riftway_append_args( const WCHAR *app_name, WCHAR *cmdline, const WCHAR *orig )
++{
++    WCHAR spec[2048], *entry, *next, *eq, *ret;
++    const WCHAR *base, *p;
++    DWORD len, size;
++
++    if (!app_name || !cmdline) return cmdline;
++    len = GetEnvironmentVariableW( L"RIFTWAY_APPEND_ARGS", spec, ARRAY_SIZE(spec) );
++    if (!len || len >= ARRAY_SIZE(spec)) return cmdline;
++    base = app_name;
++    for (p = app_name; *p; p++) if (*p == '\\' || *p == '/') base = p + 1;
++
++    for (entry = spec; entry && *entry; entry = next)
++    {
++        if ((next = wcschr( entry, ';' ))) *next++ = 0;
++        if (!(eq = wcschr( entry, '=' ))) continue;
++        *eq = 0;
++        if (wcsicmp( entry, base ) || !eq[1]) continue;
++        size = lstrlenW( cmdline ) + lstrlenW( eq + 1 ) + 2;
++        if (!(ret = RtlAllocateHeap( GetProcessHeap(), 0, size * sizeof(WCHAR) ))) return cmdline;
++        swprintf( ret, size, L"%s %s", cmdline, eq + 1 );
++        FIXME( "RIFTWAY_APPEND_ARGS: appending %s to %s\n", debugstr_w(eq + 1), debugstr_w(base) );
++        if (cmdline != orig) RtlFreeHeap( GetProcessHeap(), 0, cmdline );
++        return ret;
++    }
++    return cmdline;
++}
++
+ /**********************************************************************
+  *           CreateProcessInternalW   (kernelbase.@)
+  */
+@@ -567,6 +600,8 @@
+         }
+     }
+ 
++    tidy_cmdline = riftway_append_args( app_name, tidy_cmdline, cmd_line );
++
+     /* Warn if unsupported features are used */
+ 
+     if (flags & (IDLE_PRIORITY_CLASS | HIGH_PRIORITY_CLASS | REALTIME_PRIORITY_CLASS |

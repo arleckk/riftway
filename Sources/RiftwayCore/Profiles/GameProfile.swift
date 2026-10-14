@@ -27,6 +27,10 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
     public var d3d11: Direct3D11?
     public var dllOverrides: [String: String]
     public var programDllOverrides: [String: [String: String]]
+    /// Arguments appended to a program's command line wherever it starts
+    /// (`{"steamwebhelper.exe": "--in-process-gpu"}`); the runtime adds them
+    /// from `RIFTWAY_APPEND_ARGS` (runtime patch wine-append-args).
+    public var programArgs: [String: String]
     /// `"HKCU/Software/Studio/Game": {"Value": "1"}`; `dword:00000001` for a DWORD.
     public var registry: [String: [String: String]]
     public var dxmtConf: [String: String]
@@ -97,6 +101,7 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case schema, id, name, revision, match, status, anticheat, tested, env, game, notes, registry
         case appDPI = "app_dpi", dllOverrides = "dll_overrides", programDllOverrides = "program_dll_overrides"
+        case programArgs = "program_args"
         case dxmtConf = "dxmt_conf", playLink = "play_link", controller, d3d11
     }
 
@@ -111,6 +116,7 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
         game = [:]
         dllOverrides = [:]
         programDllOverrides = [:]
+        programArgs = [:]
         registry = [:]
         dxmtConf = [:]
     }
@@ -131,6 +137,7 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
         d3d11 = try c.decodeIfPresent(Direct3D11.self, forKey: .d3d11)
         dllOverrides = try c.decodeIfPresent([String: String].self, forKey: .dllOverrides) ?? [:]
         programDllOverrides = try c.decodeIfPresent([String: [String: String]].self, forKey: .programDllOverrides) ?? [:]
+        programArgs = try c.decodeIfPresent([String: String].self, forKey: .programArgs) ?? [:]
         registry = try c.decodeIfPresent([String: [String: String]].self, forKey: .registry) ?? [:]
         dxmtConf = try c.decodeIfPresent([String: String].self, forKey: .dxmtConf) ?? [:]
         playLink = try c.decodeIfPresent(String.self, forKey: .playLink)
@@ -153,6 +160,7 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
         case verifiedWithoutEvidence
         case playLink(String)
         case controllerLayer(program: String, layer: String)
+        case programArgs(String)
 
         public var description: String {
             switch self {
@@ -168,15 +176,18 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
             case .verifiedWithoutEvidence: "verified needs tested (date, macOS, hardware, runtime)"
             case .playLink(let scheme): "play_link \(scheme) is not a URL scheme"
             case .controllerLayer(let program, let layer): "controller: \(program) holds layer \(layer), which it does not have"
+            case .programArgs(let entry): "program_args \(entry): a program file name (.exe) and arguments, without ; or ="
             }
         }
     }
 
     static let knownKeys: Set<String> = ["schema", "id", "name", "revision", "match", "status", "anticheat", "tested", "env",
-                                         "game", "app_dpi", "dll_overrides", "program_dll_overrides", "registry",
+                                         "game", "app_dpi", "dll_overrides", "program_dll_overrides", "program_args", "registry",
                                          "dxmt_conf", "play_link", "controller", "d3d11", "notes"]
     static let knownMatchKeys: Set<String> = ["product", "company", "signer", "installer", "executables", "sha256"]
     public static let patches = ["WINEMAC_MOUSELOOK", "WINE_GAME_MODE"]
+    /// The runtime's variable for `program_args` (wine-append-args.patch).
+    public static let appendArgsVariable = "RIFTWAY_APPEND_ARGS"
 
     /// Decodes and checks a profile file: what the profile CI runs on every
     /// file in `profiles/`. Unknown keys are errors, so a typo never silently
@@ -208,6 +219,14 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
             for (name, value) in values where Self.registryData(value) == nil { throw Invalid.registryValue("\(name)=\(value)") }
         }
         for name in game.keys where !Self.patches.contains(name) { throw Invalid.unknownPatch(name) }
+        for (program, arguments) in programArgs {
+            // The runtime reads "program=arguments;program=arguments".
+            guard program.lowercased().hasSuffix(".exe"), !program.contains("\\"), !program.contains("/"),
+                  !(program + arguments).contains(";"), !program.contains("="),
+                  !arguments.trimmingCharacters(in: .whitespaces).isEmpty else {
+                throw Invalid.programArgs("\(program)=\(arguments)")
+            }
+        }
         if status == .verified, tested == nil { throw Invalid.verifiedWithoutEvidence }
         if let playLink, !URLProtocolRegistration.isValidScheme(playLink) { throw Invalid.playLink(playLink) }
         for (program, controls) in controller?.programs ?? [:] {
@@ -230,6 +249,10 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
         options.dllOverrides = dllOverrides
         options.programDllOverrides = programDllOverrides
         options.environment = env
+        if !programArgs.isEmpty {
+            options.environment[Self.appendArgsVariable] = programArgs.keys.sorted()
+                .map { "\($0)=\(programArgs[$0]!)" }.joined(separator: ";")
+        }
         return options
     }
 

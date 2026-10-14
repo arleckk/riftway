@@ -134,6 +134,10 @@ tengan alguna. `rw-0.1.4-spike` se desinstaló; ninguna botella lo usaba.
    archivos. Probado en DSR el mismo día (gráficos, carga y video sin cambios). La
    comparación con otra Mac queda pendiente: por ahora todo se mantiene local
    (sin subir nada a GitHub), así que el workflow está listo pero no se ha corrido.
+
+   **`rw-0.1.11-spike` (2026-10-14)**: frente a `rw-0.1.10` solo cambian los dos
+   `kernelbase.dll`, con `runtime/patches/wine-append-args.patch` (`RIFTWAY_APPEND_ARGS`,
+   el campo `program_args` de los perfiles). Lo usa el perfil de Steam (ver "Steam en negro").
 7. ✅ Revisión de licencia del código de Soju (2026-10-14, ver "Licencia del código de Soju"):
    se quita `ncrypt-persisted-keys.patch` (GPL-3.0) desde `rw-0.1.3-spike`.
 8. ✅ Decodificadores de video y audio (`runtime/build.py media`, desde `rw-0.1.2-spike`):
@@ -170,6 +174,18 @@ tengan alguna. `rw-0.1.4-spike` se desinstaló; ninguna botella lo usaba.
    `runtime/patches/wine-h264-nv12-last.patch` (`rw-0.1.9-spike`) ofrece NV12 al final en
    vez de esconderlo: los programas que toman el primer tipo siguen recibiendo YV12, como
    quería el hack, y Electra encuentra NV12.
+
+   **Steam en negro (`rw-0.1.11-spike`, 2026-10-14).** Steam se instala, se actualiza y su
+   interfaz carga (los logs de su webhelper muestran la ventana "Sign in to"), pero la ventana
+   queda negra, con GPU o sin ella y con o sin sandbox: Chromium compone en otro proceso
+   (`--type=gpu-process`, también en software) que dibuja en la ventana del proceso del
+   navegador, y Wine no muestra lo que un proceso dibuja en la ventana de otro. Steam no deja
+   pasar argumentos a su webhelper, así que `runtime/patches/wine-append-args.patch`
+   (kernelbase, `CreateProcessInternalW`) agrega los de `RIFTWAY_APPEND_ARGS`
+   (`programa.exe=argumentos;…`) al programa con ese nombre, como hace Proton con
+   `steamwebhelper.exe`. El perfil `profiles/steam.json` lo usa (`program_args`): con
+   `--in-process-gpu` la interfaz se ve. Probado primero con `kernelbase.dll` recompilado
+   sobre `rw-0.1.10` y luego con el runtime completo.
 
 ---
 

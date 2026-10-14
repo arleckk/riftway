@@ -51,6 +51,8 @@ PATCH_MARKERS = [
     ('lib/wine/x86_64-windows/winegstreamer.dll', 'cannot hold NV12 frames'),     # wine-video-memory-fallback (Riftway)
     ('lib/wine/x86_64-windows/mfreadwrite.dll', 'delivering them in memory'),     # wine-video-memory-fallback (Riftway)
     ('lib/wine/x86_64-windows/winegstreamer.dll', 'Offering NV12 output format last'),  # wine-h264-nv12-last (Riftway)
+    ('lib/wine/x86_64-windows/kernelbase.dll', 'RIFTWAY_APPEND_ARGS: appending'),      # wine-append-args (Riftway)
+    ('lib/wine/i386-windows/kernelbase.dll', 'RIFTWAY_APPEND_ARGS: appending'),        # wine-append-args (Riftway)
 ]
 PROOFS = ['wine-build-proof.json', 'dxmt-build-proof.json', 'native-build-proof.json', 'media-build-proof.json']
 MONO_SOURCE_SHA = '128e335396689e466dff5e1aa0770a714dbe3d16397fc4ddbb8a80999c67323b'

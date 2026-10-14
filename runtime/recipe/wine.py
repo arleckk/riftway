@@ -65,6 +65,8 @@ RIFTWAY_PATCHES = [
     ('wine-video-memory-fallback.patch', 'd7b4ef223779db0b7c4c0c6d19782816ca2070bff675c3e4e5a9c64950abc223'),
     # On macOS the H.264 decoder lists NV12 last instead of hiding it (CrossOver HACK 26265; UE5 videos).
     ('wine-h264-nv12-last.patch', '5c52448169650528df37397eb03d391baecbaacf5aeade8372cf25ccd4e22d39'),
+    # RIFTWAY_APPEND_ARGS: arguments a profile appends to a program (Steam's webhelper: --in-process-gpu).
+    ('wine-append-args.patch', '06639b15acdadcd5c35a78ffb5c8fe84eb698ac758217007dd0b7794deae283f'),
 ]
 # A string each patch adds, checked in the patched tree: a patch that silently did not
 # apply fails the build instead of shipping without it.
@@ -81,6 +83,7 @@ APPLIED = {
     'wine-dll-path-first.patch': ('dlls/ntdll/unix/loader.c', 'WINEDLLPATH_FIRST'),
     'wine-video-memory-fallback.patch': ('dlls/mfreadwrite/reader.c', 'delivering them in memory'),
     'wine-h264-nv12-last.patch': ('dlls/winegstreamer/video_decoder.c', 'Offering NV12 output format last'),
+    'wine-append-args.patch': ('dlls/kernelbase/process.c', 'RIFTWAY_APPEND_ARGS'),
 }
 BUILD_PATH = '/build/riftway'
 # PE modules carry this date instead of the build's (runtime/sources.lock.json).
