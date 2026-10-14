@@ -54,12 +54,19 @@ final class InputDelegate: NSObject, NSApplicationDelegate {
         frontmostChanged()
         Timer.scheduledTimer(withTimeInterval: 1.0 / 120, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.tick() } }
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.housekeeping() } }
+        // Not every switch between Wine's windows posts an activation.
+        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.frontmostChanged() } }
     }
 
     // MARK: The program in front
 
+    var frontPID: pid_t = 0
+
     @objc func frontmostChanged() {
-        let name = NSWorkspace.shared.frontmostApplication.flatMap { bottleProgram(pid: $0.processIdentifier) }
+        let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
+        guard pid != frontPID else { return }
+        frontPID = pid
+        let name = pid == 0 ? nil : bottleProgram(pid: pid)
         guard name != program else { return }
         releaseAll()
         program = name
@@ -67,29 +74,50 @@ final class InputDelegate: NSObject, NSApplicationDelegate {
         if let name { log.write("input: \(name) → \(layout.controls(for: name).mode.rawValue)") }
     }
 
-    /// The Windows program a process runs, if it is one of this bottle's: Wine
-    /// sets its `argv[0]` to the program's path inside the prefix. Only
-    /// `argv[0]` is read; the arguments (links with tokens) never are.
+    /// The Windows program a process runs, if it is one of this bottle's.
+    /// Wine sets `argv[0]` to the program's path: inside the prefix when
+    /// started from macOS, a Windows path (`C:\…`) when another Windows
+    /// program started it (DSR's `Client.exe` starts the game). A Windows path
+    /// belongs to this bottle when the process works in a folder of its
+    /// prefix. Only `argv[0]` is read; the arguments (links with tokens) never are.
     func bottleProgram(pid: pid_t) -> String? {
         if let cached = pidCache[pid] { return cached }
-        var mib = [CTL_KERN, KERN_PROCARGS2, pid]
-        var size = 0
+        let roots = [prefix.path, prefix.resolvingSymlinksInPath().path]
         var name: String?
-        if sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 {
-            var buffer = [UInt8](repeating: 0, count: size)
-            if sysctl(&mib, 3, &buffer, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size {
-                var i = MemoryLayout<Int32>.size
-                while i < size, buffer[i] != 0 { i += 1 }  // the executable's path
-                while i < size, buffer[i] == 0 { i += 1 }  // padding
-                var end = i
-                while end < size, buffer[end] != 0 { end += 1 }
-                let argv0 = String(decoding: buffer[i..<end], as: UTF8.self)
-                let driveC = [prefix.path, prefix.resolvingSymlinksInPath().path].map { $0 + "/drive_c/" }
-                if driveC.contains(where: argv0.hasPrefix) { name = (argv0 as NSString).lastPathComponent }
+        if let argv0 = Self.argv0(pid) {
+            if roots.contains(where: { argv0.hasPrefix($0 + "/drive_c/") }) {
+                name = (argv0 as NSString).lastPathComponent
+            } else if argv0.count > 3, argv0.dropFirst().hasPrefix(#":\"#), let folder = Self.workingDirectory(pid),
+                      roots.contains(where: { folder.hasPrefix($0 + "/") }) {
+                name = argv0.split(separator: "\\").last.map(String.init)
+            } else if argv0.lowercased().hasSuffix(".exe") {
+                var comm = [CChar](repeating: 0, count: 256)
+                proc_name(pid, &comm, 256)
+                log.write("input: \(comm.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }) in front is not a program of \(root.lastPathComponent)")
             }
         }
         pidCache[pid] = name
         return name
+    }
+
+    static func argv0(_ pid: pid_t) -> String? {
+        var mib = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return nil }
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
+        var i = MemoryLayout<Int32>.size
+        while i < size, buffer[i] != 0 { i += 1 }  // the executable's path
+        while i < size, buffer[i] == 0 { i += 1 }  // padding
+        var end = i
+        while end < size, buffer[end] != 0 { end += 1 }
+        return end > i ? String(decoding: buffer[i..<end], as: UTF8.self) : nil
+    }
+
+    static func workingDirectory(_ pid: pid_t) -> String? {
+        var info = proc_vnodepathinfo()
+        guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, Int32(MemoryLayout<proc_vnodepathinfo>.size)) > 0 else { return nil }
+        return withUnsafePointer(to: info.pvi_cdir.vip_path) { $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) { String(cString: $0) } }
     }
 
     // MARK: Reading the controller
@@ -245,6 +273,7 @@ final class InputDelegate: NSObject, NSApplicationDelegate {
             layout = ControllerLayout.read(bottle: root) ?? ControllerLayout()
             program = nil
             pidCache = [:]
+            frontPID = 0
             frontmostChanged()
         }
         // The session ends with the bottle's Wine server; give a launch time to start it.
