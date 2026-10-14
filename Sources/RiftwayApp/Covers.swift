@@ -8,22 +8,38 @@ struct CoverGrid: View {
     @Bindable var library: LibraryModel
     /// The install tile at the end, when the grid shows the whole library.
     let add: (() -> Void)?
+    /// The controller's focus, and where the grid tells it its columns.
+    let pad: PadNavigation?
     /// Opens the game's page.
     let open: (LibraryEntry) -> Void
     @State private var trashCandidate: LibraryEntry?
     @State private var playSettings: LibraryEntry?
     @State private var controllerSettings: LibraryEntry?
 
+    private static let minimum: CGFloat = 150, spacing: CGFloat = 22
+
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 190), spacing: 22, alignment: .top)],
-                  alignment: .leading, spacing: 26) {
-            ForEach(entries) { entry in
-                CoverTile(entry: entry, icon: library.icons[entry.id], palette: library.palettes[entry.id] ?? .riftway,
-                          runningSince: library.running.contains(entry.id) ? (library.runningSince[entry.id] ?? Date()) : nil,
-                          play: { library.play(entry) }, stop: { library.stop(entry) }, open: { open(entry) })
-                    .contextMenu { menu(entry) }
+        ScrollViewReader { scroller in
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.minimum, maximum: 190), spacing: Self.spacing, alignment: .top)],
+                      alignment: .leading, spacing: 26) {
+                ForEach(entries) { entry in
+                    CoverTile(entry: entry, icon: library.icons[entry.id], palette: library.palettes[entry.id] ?? .riftway,
+                              runningSince: library.running.contains(entry.id) ? (library.runningSince[entry.id] ?? Date()) : nil,
+                              focused: pad?.isActive == true && pad?.focused == entry.id,
+                              play: { library.play(entry) }, stop: { library.stop(entry) }, open: { open(entry) })
+                        .contextMenu { menu(entry) }
+                        .id(entry.id)
+                }
+                if let add { AddCover(action: add) }
             }
-            if let add { AddCover(action: add) }
+            // An adaptive grid fits as many minimum-width columns as the width allows.
+            .onGeometryChange(for: Int.self) { max(1, Int((($0.size.width + Self.spacing) / (Self.minimum + Self.spacing)).rounded(.down))) } action: {
+                pad?.columns = $0
+            }
+            .onChange(of: pad?.focused) {
+                guard let id = pad?.focused else { return }
+                withAnimation(.snappy(duration: 0.2)) { scroller.scrollTo(id) }
+            }
         }
         .sheet(item: $playSettings) { entry in
             PlaySettingsView(entry: entry, library: library)
@@ -91,15 +107,13 @@ private struct CoverTile: View {
     let palette: CoverPalette
     /// When the game was opened, if it is open.
     let runningSince: Date?
+    /// Where the controller's focus is.
+    let focused: Bool
     let play: () -> Void
     let stop: () -> Void
     let open: () -> Void
     @State private var hovering = false
-
-    private var canPlay: Bool {
-        !((entry.game.primary == nil && entry.game.customLaunch == nil)
-          || (entry.runtime == nil && (entry.game.customLaunch != nil || entry.game.primary?.windowsPath != nil)))
-    }
+    private var raised: Bool { hovering || focused }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -112,7 +126,7 @@ private struct CoverTile: View {
                         if runningSince != nil {
                             Button(action: stop) { Label("Detener", systemImage: "stop.fill") }
                                 .buttonStyle(.borderedProminent).tint(.black.opacity(0.55))
-                        } else if canPlay {
+                        } else if entry.canPlay {
                             Button(action: play) { Label("Jugar", systemImage: "play.fill") }
                                 .buttonStyle(PlayButtonStyle())
                         }
@@ -123,10 +137,17 @@ private struct CoverTile: View {
                         .strokeBorder(runningSince != nil ? Theme.cyan : .white.opacity(hovering ? 0.25 : 0.08),
                                       lineWidth: runningSince != nil ? 2.5 : 1)
                 }
-                .shadow(color: .black.opacity(hovering ? 0.28 : 0.16), radius: hovering ? 12 : 6, y: hovering ? 6 : 3)
-                .scaleEffect(hovering ? 1.02 : 1)
-                .animation(.snappy(duration: 0.18), value: hovering)
-                .onTapGesture(count: 2) { if runningSince == nil && canPlay { play() } }
+                .overlay {
+                    if focused {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(Theme.pink, lineWidth: 3)
+                            .padding(-4)
+                    }
+                }
+                .shadow(color: .black.opacity(raised ? 0.28 : 0.16), radius: raised ? 12 : 6, y: raised ? 6 : 3)
+                .scaleEffect(raised ? 1.02 : 1)
+                .animation(.snappy(duration: 0.18), value: raised)
+                .onTapGesture(count: 2) { if runningSince == nil && entry.canPlay { play() } }
                 .onTapGesture { open() }
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.game.name).font(.callout.weight(.semibold)).lineLimit(2)

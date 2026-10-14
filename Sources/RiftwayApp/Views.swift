@@ -17,14 +17,17 @@ struct LibraryView: View {
     @State private var item: SidebarItem? = .library
     @State private var search = ""
     let controllers: ControllerStatus
+    let pad: PadNavigation
     /// The game page open over the current section, if any.
     @State private var path: [String] = []
 
-    init(model: AppModel, library: LibraryModel, updates: UpdateModel, controllers: ControllerStatus, item: SidebarItem = .library) {
+    init(model: AppModel, library: LibraryModel, updates: UpdateModel, controllers: ControllerStatus,
+         pad: PadNavigation = PadNavigation(), item: SidebarItem = .library) {
         self.model = model
         self.library = library
         self.updates = updates
         self.controllers = controllers
+        self.pad = pad
         _item = State(initialValue: item)
     }
 
@@ -38,14 +41,22 @@ struct LibraryView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Theme.canvas)
                     .navigationDestination(for: String.self) { id in
-                        GamePage(id: id, library: library, close: { path.removeAll() })
+                        GamePage(id: id, library: library, close: { path.removeAll() }, pad: pad)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .background(Theme.canvas)
                     }
             }
+            .safeAreaInset(edge: .bottom) {
+                if pad.isActive, let family = controllers.pads.first?.family {
+                    PadHints(family: family, hints: hints)
+                }
+            }
         }
         .tint(Theme.violet)
         .onChange(of: item) { path.removeAll() }
+        .onChange(of: pad.event) {
+            if let command = pad.event?.command { handle(command) }
+        }
         .onChange(of: library.requestedPage, initial: true) {
             guard let id = library.requestedPage else { return }
             library.requestedPage = nil
@@ -94,10 +105,60 @@ struct LibraryView: View {
 
     private func open(_ entry: LibraryEntry) { path = [entry.id] }
 
+    /// The covers the controller moves through: the grid shown.
+    private var navigable: [LibraryEntry] {
+        switch item ?? .library {
+        case .library: library.entries.filter { search.isEmpty || $0.game.name.localizedCaseInsensitiveContains(search) }
+        case .playing: library.entries.filter { library.running.contains($0.id) }
+        case .runtimes: []
+        }
+    }
+
+    private var hints: [(ControllerButton, String)] {
+        if !path.isEmpty { return [(.a, "Jugar"), (.l1, "Pestaña"), (.b, "Volver"), (.start, "Modo sillón")] }
+        if navigable.isEmpty { return [(.l1, "Sección"), (.start, "Modo sillón")] }
+        return [(.a, "Abrir"), (.y, "Jugar"), (.l1, "Sección"), (.start, "Modo sillón")]
+    }
+
+    /// A controller command in the window. On a game's page only ○ is the
+    /// window's (back to the grid); the page takes the rest. The controller
+    /// never stops a game here: that stays a click, or the couch mode's options.
+    private func handle(_ command: CouchCommand) {
+        guard path.isEmpty else {
+            if command == .back { path.removeAll() }
+            return
+        }
+        let games = navigable
+        switch command {
+        case .left, .right, .up, .down:
+            let index = games.firstIndex { $0.id == pad.focused }
+            pad.focused = CoverGridFocus.move(index, command, count: games.count, columns: pad.columns).map { games[$0].id }
+        case .confirm, .options:
+            // The first press shows where the focus is.
+            guard let entry = games.first(where: { $0.id == pad.focused }) else {
+                pad.focused = games.first?.id
+                return
+            }
+            if command == .confirm {
+                open(entry)
+            } else if !library.running.contains(entry.id) && entry.canPlay {
+                library.play(entry)
+            }
+        case .previousSection, .nextSection:
+            let all: [SidebarItem] = [.library, .playing, .runtimes]
+            let index = all.firstIndex(of: item ?? .library) ?? 0
+            item = all[(index + (command == .nextSection ? 1 : all.count - 1)) % all.count]
+        case .back:
+            if !search.isEmpty { search = "" }
+        case .menu:
+            break
+        }
+    }
+
     @ViewBuilder private var detail: some View {
         switch item ?? .library {
-        case .library: LibraryPage(model: model, library: library, search: $search, isTargeted: isTargeted, open: open)
-        case .playing: PlayingPage(library: library, open: open)
+        case .library: LibraryPage(model: model, library: library, search: $search, isTargeted: isTargeted, pad: pad, open: open)
+        case .playing: PlayingPage(library: library, pad: pad, open: open)
         case .runtimes: RuntimesPage(library: library)
         }
     }
@@ -141,15 +202,37 @@ private struct SidebarFooter: View {
                 .accessibilityElement(children: .combine)
             }
             Button {
+                NSApp.sendAction(Selector(("toggleCouchMode:")), to: nil, from: nil)
+            } label: {
+                FooterLabel(title: "Modo sillón", symbol: "sofa")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Riftway en pantalla completa, para jugar desde el sillón solo con el control (Options en el control)")
+            Button {
                 NSApp.sendAction(Selector(("showSettings:")), to: nil, from: nil)
             } label: {
-                Label("Ajustes", systemImage: "gearshape")
+                FooterLabel(title: "Ajustes", symbol: "gearshape")
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
+    }
+}
+
+/// A footer button's label, its symbol in a fixed column so the titles line up.
+private struct FooterLabel: View {
+    let title: String
+    let symbol: String
+
+    var body: some View {
+        Label {
+            Text(title)
+        } icon: {
+            Image(systemName: symbol).frame(width: 22)
+        }
     }
 }
 
@@ -160,6 +243,7 @@ private struct LibraryPage: View {
     @Bindable var library: LibraryModel
     @Binding var search: String
     let isTargeted: Bool
+    let pad: PadNavigation
     let open: (LibraryEntry) -> Void
 
     var body: some View {
@@ -179,7 +263,7 @@ private struct LibraryPage: View {
                 } else if shown.isEmpty {
                     ContentUnavailableView.search(text: search).frame(maxWidth: .infinity, minHeight: 300)
                 } else {
-                    CoverGrid(entries: shown, library: library, add: search.isEmpty ? { model.chooseFiles() } : nil, open: open)
+                    CoverGrid(entries: shown, library: library, add: search.isEmpty ? { model.chooseFiles() } : nil, pad: pad, open: open)
                 }
             }
             .padding(24)
@@ -203,6 +287,7 @@ private struct LibraryPage: View {
 
 private struct PlayingPage: View {
     @Bindable var library: LibraryModel
+    let pad: PadNavigation
     let open: (LibraryEntry) -> Void
 
     var body: some View {
@@ -213,7 +298,7 @@ private struct PlayingPage: View {
                                        description: Text("Los juegos que abras desde Riftway o desde su sitio aparecen aquí."))
             } else {
                 ScrollView {
-                    CoverGrid(entries: games, library: library, add: nil, open: open).padding(24)
+                    CoverGrid(entries: games, library: library, add: nil, pad: pad, open: open).padding(24)
                 }
             }
         }
@@ -728,7 +813,6 @@ struct AssociationOfferView: View {
 struct SettingsView: View {
     let updates: UpdateModel
     let library: LibraryModel
-    @Bindable var couch: CouchMode
     @State private var refresh = 0
 
     var body: some View {
@@ -741,20 +825,6 @@ struct SettingsView: View {
                         Task { await FileAssociation.makeRiftwayDefault(); refresh += 1 }
                     }
                 }
-            }
-            Section {
-                LabeledContent {
-                    Button("Abrir") { couch.open() }
-                } label: {
-                    Text("Modo sillón")
-                    Text("Riftway en pantalla completa, para jugar desde el sillón solo con el control.")
-                }
-                Toggle(isOn: $couch.homeButtonOpens) {
-                    Text("Cambiar al modo sillón con el botón PS / Home")
-                    Text("Mientras Riftway está al frente, el botón entra y sale del modo sillón. Apagado, abre la app Juegos de macOS.")
-                }
-            } header: {
-                Text("Modo sillón")
             }
             UpdateSettings(updates: updates)
             UninstallSettings(library: library)

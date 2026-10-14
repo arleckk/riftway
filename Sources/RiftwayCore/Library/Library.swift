@@ -102,6 +102,13 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
 
     public var compatibility: Compatibility { Compatibility(profile: profile, anticheat: game.anticheat ?? []) }
 
+    /// Whether Play has something to start: a program, a launch link or a
+    /// command, and the runtime it needs.
+    public var canPlay: Bool {
+        !((game.primary == nil && game.customLaunch == nil)
+          || (runtime == nil && (game.customLaunch != nil || game.primary?.windowsPath != nil)))
+    }
+
     /// The profile changed since the bottle's registry and `dxmt.conf` were written.
     public var profileIsStale: Bool { profile.map { $0.revision != record.profileRevision } ?? false }
 

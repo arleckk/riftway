@@ -14,15 +14,18 @@ struct GamePage: View {
     @Bindable var library: LibraryModel
     /// Back to the grid (after the game moves to the Trash).
     let close: () -> Void
+    /// The controller: L1/R1 change the tab, ✕ plays.
+    let pad: PadNavigation?
     @State private var tab: Tab
     @State private var playSettings = false
     @State private var controllerSettings = false
     @State private var confirmTrash = false
 
-    init(id: String, library: LibraryModel, close: @escaping () -> Void, tab: Tab = .summary) {
+    init(id: String, library: LibraryModel, close: @escaping () -> Void, pad: PadNavigation? = nil, tab: Tab = .summary) {
         self.id = id
         self.library = library
         self.close = close
+        self.pad = pad
         _tab = State(initialValue: tab)
     }
 
@@ -51,6 +54,18 @@ struct GamePage: View {
             }
             .navigationTitle(entry.game.name)
             .navigationSubtitle("")
+            .onChange(of: pad?.event) {
+                switch pad?.event?.command {
+                case .previousSection?, .nextSection?:
+                    let all = Tab.allCases
+                    let index = all.firstIndex(of: tab)! + (pad?.event?.command == .nextSection ? 1 : all.count - 1)
+                    tab = all[index % all.count]
+                case .confirm?:
+                    if !library.running.contains(entry.id) && entry.canPlay { library.play(entry) }
+                default:
+                    break
+                }
+            }
             .sheet(isPresented: $playSettings) { PlaySettingsView(entry: entry, library: library) }
             .sheet(isPresented: $controllerSettings) { ControllerEditorView(entry: entry, library: library) }
             .confirmationDialog("¿Mover \(entry.game.name) a la Papelera?", isPresented: $confirmTrash) {
@@ -76,10 +91,6 @@ private struct GameHeader: View {
 
     private var palette: CoverPalette { library.palettes[entry.id] ?? .riftway }
     private var since: Date? { library.running.contains(entry.id) ? (library.runningSince[entry.id] ?? Date()) : nil }
-    private var canPlay: Bool {
-        !((entry.game.primary == nil && entry.game.customLaunch == nil)
-          || (entry.runtime == nil && (entry.game.customLaunch != nil || entry.game.primary?.windowsPath != nil)))
-    }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 20) {
@@ -106,7 +117,7 @@ private struct GameHeader: View {
                     } else {
                         Button { library.play(entry) } label: { Label("Jugar", systemImage: "play.fill") }
                             .buttonStyle(PlayButtonStyle(large: true))
-                            .disabled(!canPlay)
+                            .disabled(!entry.canPlay)
                             .keyboardShortcut(.defaultAction)
                     }
                     Button(action: controls) { Label("Control", systemImage: "gamecontroller") }

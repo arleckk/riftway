@@ -6,9 +6,9 @@ import SwiftUI
 
 /// The couch mode (PRD-04): Riftway full screen, played from the sofa with
 /// the controller alone. The selected game fills the background; its row of
-/// covers is below. Settings opens it; the Home (PS) button opens and closes
-/// it while Riftway is in front, unless Settings gives that button back to
-/// macOS; ○ / B and Esc leave it.
+/// covers is below. The sidebar's Couch mode and the controller's Options
+/// button open it; Options, ○ / B and Esc leave it. (Home stays macOS's: it
+/// opens the Games overlay, whatever an app asks.)
 @MainActor @Observable
 final class CouchMode {
     enum Section: CaseIterable {
@@ -34,14 +34,6 @@ final class CouchMode {
     var selection = 0
     private(set) var optionsOpen = false
     private(set) var optionIndex = 0
-    /// Whether Home switches to and from the couch mode (or, off, opens the Games app as usual).
-    var homeButtonOpens = UserDefaults.standard.object(forKey: CouchMode.homeButtonKey) as? Bool ?? true {
-        didSet {
-            UserDefaults.standard.set(homeButtonOpens, forKey: Self.homeButtonKey)
-            claimHomeButtons()
-        }
-    }
-    private static let homeButtonKey = "CouchModeHomeButton"
 
     let library: LibraryModel
     let controllers: ControllerStatus
@@ -50,44 +42,12 @@ final class CouchMode {
     private var window: NSWindow?
     private var timer: Timer?
     private var reader = CouchInputReader()
-    private var observers: [NSObjectProtocol] = []
     private var savedPresentation: NSApplication.PresentationOptions = []
 
     init(library: LibraryModel, controllers: ControllerStatus, showPage: @escaping (LibraryEntry) -> Void) {
         self.library = library
         self.controllers = controllers
         self.showPage = showPage
-    }
-
-    /// Listens for the Home button on every controller.
-    func start() {
-        for name in [Notification.Name.GCControllerDidConnect, .GCControllerDidBecomeCurrent] {
-            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.claimHomeButtons() }
-            })
-        }
-        claimHomeButtons()
-    }
-
-    /// While Riftway is in front, Home toggles the couch mode instead of
-    /// opening the Games app.
-    private func claimHomeButtons() {
-        for controller in GCController.controllers() {
-            guard let home = controller.extendedGamepad?.buttonHome else { continue }
-            guard homeButtonOpens else {
-                home.preferredSystemGestureState = .enabled
-                home.pressedChangedHandler = nil
-                continue
-            }
-            home.preferredSystemGestureState = .disabled
-            home.pressedChangedHandler = { [weak self] _, _, pressed in
-                guard pressed else { return }
-                MainActor.assumeIsolated {
-                    guard NSApp.isActive, let self else { return }
-                    self.isOpen ? self.close() : self.open()
-                }
-            }
-        }
     }
 
     // MARK: Games
@@ -106,17 +66,12 @@ final class CouchMode {
 
     func isRunning(_ entry: LibraryEntry) -> Bool { library.running.contains(entry.id) }
 
-    func canPlay(_ entry: LibraryEntry) -> Bool {
-        !((entry.game.primary == nil && entry.game.customLaunch == nil)
-          || (entry.runtime == nil && (entry.game.customLaunch != nil || entry.game.primary?.windowsPath != nil)))
-    }
-
     var options: [Option] {
         guard let entry = selected else { return [Option(title: "Salir del modo sillón", symbol: "xmark") { [weak self] in self?.close() }] }
         var list: [Option] = []
         if isRunning(entry) {
             list.append(Option(title: "Detener", symbol: "stop.fill") { [weak self] in self?.library.stop(entry) })
-        } else if canPlay(entry) {
+        } else if entry.canPlay {
             list.append(Option(title: "Jugar", symbol: "play.fill") { [weak self] in self?.library.play(entry) })
         }
         for program in entry.game.programs where program.id != entry.game.primary?.id {
@@ -158,9 +113,9 @@ final class CouchMode {
             selection = 0
         case .confirm:
             guard let entry = selected else { return }
-            if isRunning(entry) || !canPlay(entry) { openOptions() } else { library.play(entry) }
+            if isRunning(entry) || !entry.canPlay { openOptions() } else { library.play(entry) }
         case .options: openOptions()
-        case .back, .home: close()
+        case .back, .menu: close()
         default: break
         }
     }
@@ -190,7 +145,9 @@ final class CouchMode {
         self.window = window
         optionsOpen = false
         isOpen = true
+        // What is held now (the Options press that opened it) is not a press.
         reader = CouchInputReader()
+        _ = reader.read(CouchPadState.current() ?? CouchPadState(), at: ProcessInfo.processInfo.systemUptime)
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.poll() }
         }
@@ -210,9 +167,16 @@ final class CouchMode {
     /// Reads the current controller 60 times a second while open (only when
     /// Riftway is in front: macOS gives the controller to the active app).
     private func poll() {
-        guard NSApp.isActive,
-              let pad = GCController.current?.extendedGamepad
-                ?? GCController.controllers().lazy.compactMap(\.extendedGamepad).first else { return }
+        guard NSApp.isActive, let state = CouchPadState.current() else { return }
+        for command in reader.read(state, at: ProcessInfo.processInfo.systemUptime) { handle(command) }
+    }
+}
+
+extension CouchPadState {
+    /// The current controller's buttons now, or nil without a controller.
+    @MainActor static func current() -> CouchPadState? {
+        guard let pad = GCController.current?.extendedGamepad
+                ?? GCController.controllers().lazy.compactMap(\.extendedGamepad).first else { return nil }
         var state = CouchPadState()
         state.left = pad.dpad.left.isPressed || pad.leftThumbstick.xAxis.value < -0.5
         state.right = pad.dpad.right.isPressed || pad.leftThumbstick.xAxis.value > 0.5
@@ -223,7 +187,8 @@ final class CouchMode {
         state.options = pad.buttonY.isPressed
         state.previousSection = pad.leftShoulder.isPressed
         state.nextSection = pad.rightShoulder.isPressed
-        for command in reader.read(state, at: ProcessInfo.processInfo.systemUptime) { handle(command) }
+        state.menu = pad.buttonMenu.isPressed
+        return state
     }
 }
 
@@ -341,7 +306,7 @@ private struct CouchHero: View {
                     .padding(.horizontal, 26).padding(.vertical, 12)
                     .foregroundStyle(Theme.onPink)
                     .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.pink))
-                    .opacity(running || mode.canPlay(entry) ? 1 : 0.4)
+                    .opacity(running || entry.canPlay ? 1 : 0.4)
                     .onTapGesture { mode.handle(.confirm) }
                 Label("Opciones", systemImage: "slider.horizontal.3")
                     .font(.title2)

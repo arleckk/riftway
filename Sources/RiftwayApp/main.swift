@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let library = LibraryModel()
     let updates = UpdateModel()
     let controllers = ControllerStatus()
+    let pad = PadNavigation()
     private var playingMenu: PlayingMenu?
     private var couch: CouchMode?
     private var window: NSWindow?
@@ -30,7 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.title = "Riftway"
         window.toolbarStyle = .unified
         window.contentMinSize = minimum
-        let host = NSHostingController(rootView: LibraryView(model: model, library: library, updates: updates, controllers: controllers)
+        let host = NSHostingController(rootView: LibraryView(model: model, library: library, updates: updates, controllers: controllers, pad: pad)
             .frame(minWidth: minimum.width, minHeight: minimum.height))
         // The window keeps its own size; the library's grid has no ideal width
         // and would shrink it to a sliver.
@@ -61,8 +62,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.library.requestedPage = entry.id
             self?.showMain()
         }
-        couch.start()
         self.couch = couch
+        pad.window = window
+        pad.isPaused = { couch.isOpen }
+        pad.openCouchMode = { couch.open() }
+        pad.start()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -93,8 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showSettings(_ sender: Any?) {
         if settingsWindow == nil {
-            guard let couch else { return }
-            let controller = NSHostingController(rootView: SettingsView(updates: updates, library: library, couch: couch))
+            let controller = NSHostingController(rootView: SettingsView(updates: updates, library: library))
             let window = NSWindow(contentViewController: controller)
             window.title = "Ajustes"
             window.styleMask = [.titled, .closable]
@@ -104,6 +107,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         settingsWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate()
+    }
+
+    @objc func toggleCouchMode(_ sender: Any?) {
+        guard let couch else { return }
+        couch.isOpen ? couch.close() : couch.open()
     }
 
     @objc func checkForUpdates(_ sender: Any?) {
@@ -163,7 +171,8 @@ func renderAnalysis(_ file: String, to output: String) -> Int32 {
 
 /// Developer aid: `Riftway --render-library <out.png>` draws the main window on
 /// the library of $RIFTWAY_HOME (`--render-page <library|playing|runtimes> <out.png>`
-/// on another section), and `--render-install <bottle> <out.png>` the result
+/// on another section; with $RIFTWAY_RENDER_PAD=1, as the controller leaves it:
+/// the first cover focused and the hints), and `--render-install <bottle> <out.png>` the result
 /// screen for an installed bottle (its discovery against its baseline).
 @MainActor
 func renderLibrary(to output: String, installedBottle: String? = nil, page: SidebarItem = .library) -> Int32 {
@@ -182,10 +191,9 @@ func renderLibrary(to output: String, installedBottle: String? = nil, page: Side
         job.phase = .result
         view = AnyView(InstallView(job: job, library: library))
     } else {
-        // The sidebar shows the controllers connected now, with their batteries.
-        let controllers = ControllerStatus()
-        controllers.start()
-        view = AnyView(LibraryView(model: AppModel(), library: library, updates: UpdateModel(), controllers: controllers, item: page)
+        let pad = PadNavigation()
+        if ProcessInfo.processInfo.environment["RIFTWAY_RENDER_PAD"] == "1" { pad.showForRender(focused: library.entries.first?.id) }
+        view = AnyView(LibraryView(model: AppModel(), library: library, updates: UpdateModel(), controllers: ControllerStatus(), pad: pad, item: page)
             .frame(width: 1040, height: 680))
     }
     return snapshot(view, to: output)
@@ -268,11 +276,7 @@ if let index = arguments.firstIndex(of: "--render-controller"), arguments.count 
     })
 }
 if let index = arguments.firstIndex(of: "--render-settings"), arguments.count > index + 1 {
-    exit(MainActor.assumeIsolated {
-        let library = LibraryModel()
-        let couch = CouchMode(library: library, controllers: ControllerStatus()) { _ in }
-        return snapshot(AnyView(SettingsView(updates: UpdateModel(), library: library, couch: couch)), to: arguments[index + 1])
-    })
+    exit(MainActor.assumeIsolated { snapshot(AnyView(SettingsView(updates: UpdateModel(), library: LibraryModel())), to: arguments[index + 1]) })
 }
 if let index = arguments.firstIndex(of: "--render-updates"), arguments.count > index + 1 {
     // Checks $RIFTWAY_FEED_URL and draws the update sheet.
