@@ -249,6 +249,14 @@ if let index = arguments.firstIndex(of: "--render-page"), arguments.count > inde
     let pages: [String: SidebarItem] = ["library": .library, "playing": .playing, "launchers": .launchers, "runtimes": .runtimes]
     exit(MainActor.assumeIsolated { renderLibrary(to: arguments[index + 2], page: pages[arguments[index + 1]] ?? .library) })
 }
+if let index = arguments.firstIndex(of: "--render-settings"), arguments.count > index + 1 {
+    // `--render-settings <out.png>`: the Settings window on $RIFTWAY_HOME.
+    exit(MainActor.assumeIsolated {
+        let library = LibraryModel()
+        library.reload()
+        return snapshot(AnyView(SettingsView(updates: UpdateModel(), library: library)), to: arguments[index + 1])
+    })
+}
 if let index = arguments.firstIndex(of: "--render-game"), arguments.count > index + 3 {
     exit(MainActor.assumeIsolated { renderGame(arguments[index + 1], tab: arguments[index + 2], to: arguments[index + 3]) })
 }

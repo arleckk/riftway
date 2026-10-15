@@ -16,10 +16,13 @@ public final class Installation: @unchecked Sendable {
     public enum Failure: Error, CustomStringConvertible, Equatable {
         case notAnInstaller
         case stopped
+        /// The disk new games go to is disconnected.
+        case locationMissing(drive: String)
         public var description: String {
             switch self {
             case .notAnInstaller: "This file is not a Windows installer or program Riftway can run"
             case .stopped: "The installation was stopped"
+            case .locationMissing(let drive): "\(drive) is not connected; connect it or choose where new games go (riftway locations default)"
             }
         }
     }
@@ -52,6 +55,10 @@ public final class Installation: @unchecked Sendable {
     /// `arguments` go to the installer after its path (`/S` for a silent NSIS
     /// install in tests; players see the wizard).
     public func run(arguments: [String] = [], progress: @Sendable (Stage) -> Void = { _ in }) throws -> InstallResult {
+        let location = root.deletingLastPathComponent()
+        guard location == library.home.bottles || BottleLocations.isAvailable(location) else {
+            throw Failure.locationMissing(drive: BottleLocations.driveName(location))
+        }
         let command: [String]
         switch report.kind {
         case .installer(.msi): command = ["msiexec", "/i"]

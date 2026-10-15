@@ -80,6 +80,7 @@ struct LibraryView: View {
         }
         .sheet(item: Binding(get: { model.current }, set: { if $0 == nil { model.dismissCurrent() } })) { file in
             AnalysisView(file: file, remaining: model.remaining, canInstall: !library.runtimes.isEmpty,
+                         location: library.installLocation,
                          close: { model.dismissCurrent() },
                          install: { report in
                              let profile = file.profile
@@ -268,6 +269,11 @@ private struct LibraryPage: View {
                 if library.runtimes.isEmpty {
                     PageNotice(symbol: "shippingbox", text: "Falta el runtime de Windows. Mientras no haya descargas, elige un runtime compilado.",
                                action: ("Elegir runtime…", { library.chooseRuntime() }))
+                }
+                ForEach(library.disconnected, id: \.path) { folder in
+                    let names = folder.games.values.sorted().joined(separator: ", ")
+                    PageNotice(symbol: "externaldrive.badge.xmark",
+                               text: "\(BottleLocations.driveName(folder.url)) no está conectado. Conéctalo para jugar \(names).")
                 }
                 if library.entries.isEmpty {
                     EmptyLibrary(isTargeted: isTargeted, choose: { model.chooseFiles() }, launchers: { model.requestedSection = .launchers })
@@ -485,6 +491,8 @@ struct AnalysisView: View {
     let file: PendingFile
     let remaining: Int
     let canInstall: Bool
+    /// Where the new bottle goes, and whether its disk is disconnected.
+    var location: (title: String, missing: Bool) = ("Esta Mac", false)
     let close: () -> Void
     let install: (InstallerReport) -> Void
 
@@ -515,7 +523,7 @@ struct AnalysisView: View {
                     .keyboardShortcut(.cancelAction)
                 Button(isPortable ? "Agregar a la biblioteca" : "Instalar") { if let report = file.report { install(report) } }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!(isInstaller || isPortable) || !canInstall)
+                    .disabled(!(isInstaller || isPortable) || !canInstall || location.missing)
             }
             .padding(16)
         }
@@ -535,11 +543,14 @@ struct AnalysisView: View {
     private var note: String? {
         guard let report = file.report else { return nil }
         if (isInstaller || isPortable) && !canInstall { return "Falta el runtime de Windows." }
+        guard isInstaller || isPortable else { return nil }
+        if location.missing { return "\(location.title) no está conectado: conéctalo o cambia el lugar en Ajustes." }
+        let place = location.title == "Esta Mac" ? "" : " en \(location.title)"
         if isPortable {
             let (_, wholeFolder) = Installation.portableSource(for: report.file)
-            return wholeFolder ? "Se copia su carpeta a una botella nueva." : "Se copia el programa a una botella nueva."
+            return (wholeFolder ? "Se copia su carpeta a una botella nueva" : "Se copia el programa a una botella nueva") + place + "."
         }
-        return nil
+        return place.isEmpty ? nil : "Se instala\(place)."
     }
 }
 
@@ -842,6 +853,7 @@ struct SettingsView: View {
                     }
                 }
             }
+            LocationSettings(library: library)
             UpdateSettings(updates: updates)
             UninstallSettings(library: library)
         }
@@ -860,6 +872,54 @@ struct SettingsView: View {
             }
         }
     }
+}
+
+/// Where new games go and the folders that hold games (PRD-02 R2.3).
+private struct LocationSettings: View {
+    let library: LibraryModel
+
+    var body: some View {
+        let home = library.library.home.bottles
+        let locations = library.locations
+        Section {
+            Picker("Instalar juegos nuevos en", selection: Binding(
+                get: { locations.install ?? home.path },
+                set: { library.setInstallLocation(URL(fileURLWithPath: $0, isDirectory: true)) })) {
+                Text("Esta Mac").tag(home.path)
+                ForEach(locations.folders, id: \.path) { folder in
+                    let available = BottleLocations.isAvailable(folder.url)
+                    Text(BottleLocations.title(folder.url) + (available ? "" : " (desconectado)")).tag(folder.path)
+                }
+            }
+            ForEach(locations.folders, id: \.path) { folder in
+                LabeledContent {
+                    if folder.games.isEmpty && folder.path != locations.install {
+                        Button("Quitar") { library.removeLocation(folder.url) }
+                            .help("Riftway deja de usarla; la carpeta se queda")
+                    }
+                } label: {
+                    Text(BottleLocations.title(folder.url))
+                    Text(BottleLocations.isAvailable(folder.url) ? Self.count(folder.games.count) : "Desconectado · " + Self.count(folder.games.count))
+                }
+                .contextMenu {
+                    Button("Mostrar en Finder") { NSWorkspace.shared.activateFileViewerSelecting([folder.url]) }
+                        .disabled(!BottleLocations.isAvailable(folder.url))
+                }
+            }
+            Button("Agregar ubicación…") {
+                if let root = library.chooseLocation(message: "Elige dónde instalar los juegos nuevos (un disco APFS o Mac OS Extended). Riftway crea ahí una carpeta Riftway.") {
+                    library.setInstallLocation(root)
+                }
+            }
+        } header: {
+            Text("Juegos")
+        } footer: {
+            Text("Cada juego es una carpeta con su Windows. Para llevar uno que ya tienes a otro disco, usa Mover a… en su pestaña Avanzado.")
+                .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private static func count(_ n: Int) -> String { n == 1 ? "1 juego" : "\(n) juegos" }
 }
 
 /// What Play starts: what the installer left, a launch link the player pastes

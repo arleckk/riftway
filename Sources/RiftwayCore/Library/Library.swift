@@ -107,6 +107,8 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
     /// game its launcher installed, the launcher's (Steam's webhelper
     /// arguments must reach Steam however it starts).
     public var bottleProfile: GameProfile? = nil
+    /// Riftway's home, which holds the secret store wherever the bottle is.
+    public var home: URL? = nil
 
     public var id: String { game.id }
 
@@ -123,10 +125,14 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
     /// The profile changed since the bottle's registry and `dxmt.conf` were written.
     public var profileIsStale: Bool { profile.map { $0.revision != record.profileRevision } ?? false }
 
-    /// The Riftway home's secret store (`<home>/Secrets`; bottles are `<home>/Bottles/<id>`).
+    /// The Riftway home's secret store (`<home>/Secrets`), also for a bottle on another disk.
     public var secrets: SecretStore {
-        SecretStore(directory: root.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Secrets", isDirectory: true))
+        let home = home ?? root.deletingLastPathComponent().deletingLastPathComponent()
+        return SecretStore(directory: home.appendingPathComponent("Secrets", isDirectory: true))
     }
+
+    /// The location folder that holds the bottle.
+    public var location: URL { root.deletingLastPathComponent() }
 
     public var setup: BottleSetup? {
         runtime.map { BottleSetup(runtime: $0, root: root, options: record.options, profile: bottleProfile ?? profile, runtimeVersion: record.runtimeVersion) }
@@ -180,15 +186,39 @@ public struct Library: Sendable {
         return decoder
     }
 
+    /// The games in every location whose disk is connected. A bottle id seen
+    /// twice (a copy on another disk) is listed once, from the first folder.
     public func entries() -> [LibraryEntry] {
-        let fm = FileManager.default
-        guard let names = try? fm.contentsOfDirectory(atPath: home.bottles.path) else { return [] }
-        return names.sorted().flatMap { name -> [LibraryEntry] in
-            let root = home.bottles.appendingPathComponent(name, isDirectory: true)
-            guard let main = entry(at: root) else { return [] }
-            return [main] + storeEntries(in: root)
+        var seen = Set<String>()
+        var found: [String: [String: String]] = [:]
+        var result: [LibraryEntry] = []
+        for folder in home.bottleFolders {
+            guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { continue }
+            for name in names.sorted() where !name.hasPrefix(".") {
+                let root = folder.appendingPathComponent(name, isDirectory: true)
+                guard let main = entry(at: root), seen.insert(main.id).inserted else { continue }
+                found[folder.standardizedFileURL.path, default: [:]][main.id] = main.game.name
+                result += [main] + storeEntries(in: root)
+            }
         }
-        .sorted { ($0.game.lastPlayed ?? $0.game.added) > ($1.game.lastPlayed ?? $1.game.added) }
+        rememberGames(found)
+        return result.sorted { ($0.game.lastPlayed ?? $0.game.added) > ($1.game.lastPlayed ?? $1.game.added) }
+    }
+
+    /// Keeps the games of each connected folder in `locations.json`, for when
+    /// its disk is not.
+    private func rememberGames(_ found: [String: [String: String]]) {
+        var locations = home.locations()
+        let before = locations
+        for i in locations.folders.indices where BottleLocations.isAvailable(locations.folders[i].url) {
+            locations.folders[i].games = found[locations.folders[i].path] ?? [:]
+        }
+        if locations != before { try? home.saveLocations(locations) }
+    }
+
+    /// The added folders whose disk is disconnected, with the games last seen there.
+    public func disconnectedFolders() -> [BottleLocations.Folder] {
+        home.locations().folders.filter { !$0.games.isEmpty && !BottleLocations.isAvailable($0.url) }
     }
 
     /// The bottle's own game (`<bottle>/game.json`), or with `folder` one of
@@ -204,7 +234,7 @@ public struct Library: Sendable {
         let bottleProfile = record.profile.flatMap(profiles.profile(id:))
         return LibraryEntry(game: game, root: root, folder: folder, record: record,
                             runtime: home.runtime(version: record.runtimeVersion)?.runtime,
-                            profile: game.store == nil ? bottleProfile : nil, bottleProfile: bottleProfile)
+                            profile: game.store == nil ? bottleProfile : nil, bottleProfile: bottleProfile, home: home.root)
     }
 
     /// The entry as saved now (it may have changed since `entry` was read).

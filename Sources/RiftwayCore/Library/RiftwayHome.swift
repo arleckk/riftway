@@ -88,15 +88,79 @@ public struct RiftwayHome: Sendable, Equatable {
         return InstalledRuntime(version: version, runtime: WineRuntime(root: target.path))
     }
 
-    /// A new, unused bottle folder for `name`: `Bottles/<slug>`, `<slug>-2`…
+    /// A new, unused bottle folder for `name` where new games go:
+    /// `<folder>/<slug>`, `<slug>-2`… The id is free in every location, also
+    /// on disks that are disconnected now.
     public func newBottleRoot(for name: String) -> URL {
         let base = ShimBundle.slug(name).isEmpty ? "bottle" : ShimBundle.slug(name)
-        var candidate = bottles.appendingPathComponent(base, isDirectory: true)
+        let folder = installFolder
+        let locations = locations()
+        func taken(_ id: String) -> Bool {
+            bottleFolders.contains { FileManager.default.fileExists(atPath: $0.appendingPathComponent(id).path) }
+                || locations.folders.contains { $0.games[id] != nil }
+        }
+        var id = base
         var n = 2
-        while FileManager.default.fileExists(atPath: candidate.path) {
-            candidate = bottles.appendingPathComponent("\(base)-\(n)", isDirectory: true)
+        while taken(id) {
+            id = "\(base)-\(n)"
             n += 1
         }
-        return candidate
+        return folder.appendingPathComponent(id, isDirectory: true)
+    }
+
+    // MARK: Locations (PRD-02 R2.3)
+
+    public var locationsFile: URL { root.appendingPathComponent(BottleLocations.file) }
+
+    public func locations() -> BottleLocations {
+        guard let data = try? Data(contentsOf: locationsFile),
+              let locations = try? JSONDecoder().decode(BottleLocations.self, from: data) else { return BottleLocations() }
+        return locations
+    }
+
+    public func saveLocations(_ locations: BottleLocations) throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(locations).write(to: locationsFile, options: .atomic)
+    }
+
+    /// Where new bottles go: the folder chosen in Settings, or `Bottles`.
+    public var installFolder: URL {
+        locations().install.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? bottles
+    }
+
+    /// Whether new games can't go to `installFolder` now: its disk is disconnected.
+    public var installFolderIsMissing: Bool {
+        installFolder != bottles && !BottleLocations.isAvailable(installFolder)
+    }
+
+    /// The folders that hold bottles and can be read now: `Bottles`, then those
+    /// the player added whose disk is connected.
+    public var bottleFolders: [URL] {
+        [bottles] + locations().folders.map(\.url).filter(BottleLocations.isAvailable)
+    }
+
+    /// Adds a `Riftway` folder (made, with its marker) and, with `install`,
+    /// sends new games there. Passing `bottles` with `install` sends them home.
+    public func addLocation(_ root: URL, install: Bool) throws {
+        var locations = locations()
+        let root = root.standardizedFileURL
+        if root != bottles.standardizedFileURL {
+            try BottleLocations.prepare(root)
+            if !locations.folders.contains(where: { $0.path == root.path }) {
+                locations.folders.append(BottleLocations.Folder(path: root.path))
+            }
+        }
+        if install { locations.install = root == bottles.standardizedFileURL ? nil : root.path }
+        try saveLocations(locations)
+    }
+
+    /// Forgets a folder that holds no games; its `Riftway` folder stays.
+    public func removeLocation(_ root: URL) throws {
+        var locations = locations()
+        locations.folders.removeAll { $0.path == root.standardizedFileURL.path && $0.games.isEmpty }
+        if locations.install == root.standardizedFileURL.path { locations.install = nil }
+        try saveLocations(locations)
     }
 }

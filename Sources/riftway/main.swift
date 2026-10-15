@@ -70,6 +70,13 @@ Library (~/Library/Application Support/Riftway, or $RIFTWAY_HOME):
       What Play starts. --link: the last link the game's site sent to the bridge
       (remembered automatically), or one pasted on standard input (never as an
       argument); links are kept in <home>/Secrets, outside every bottle.
+  riftway locations [add <folder> [--default] | default <folder|home> | remove <folder>]
+      Where bottles live: the home's Bottles and the folders added (a Riftway folder
+      inside the one given, on an APFS or Mac OS Extended disk), and where new games go.
+  riftway move <game> <folder|home>
+      Move the game's bottle (a launcher's games go with it) to another location:
+      a rename on the same disk, otherwise a checked copy and then the original
+      is removed. Its shortcut apps are rebuilt.
   riftway cover <game> <image> | --reset
       The game's own cover (PNG, JPEG, HEIC, WebP…; Riftway keeps a copy in the
       bottle), or back to the one drawn from its icon.
@@ -339,6 +346,45 @@ func shimBinary() throws -> URL {
         throw CLIError("\(ShimBundle.executableName) was not found next to riftway (\(shim.path)); build both products")
     }
     return shim
+}
+
+/// `home` (the home's Bottles), or the Riftway folder in (or at) a folder.
+func locationRoot(_ argument: String, home: RiftwayHome) -> URL {
+    argument == "home" ? home.bottles : BottleLocations.root(forChosen: URL(fileURLWithPath: argument, isDirectory: true))
+}
+
+func locations(_ options: Options) throws {
+    let home = RiftwayHome.standard
+    let arguments = options.positional
+    switch (arguments.first, arguments.count) {
+    case (nil, _):
+        let locations = home.locations()
+        let install = home.installFolder.standardizedFileURL
+        print("\(home.bottles.path)\(install == home.bottles.standardizedFileURL ? "  [new games]" : "")")
+        for folder in locations.folders {
+            let state = BottleLocations.isAvailable(folder.url) ? BottleLocations.title(folder.url) : "\(BottleLocations.driveName(folder.url)) disconnected"
+            print("\(folder.path)  (\(state); \(folder.games.count) games)\(folder.path == locations.install ? "  [new games]" : "")")
+        }
+    case ("add", 2):
+        let root = locationRoot(arguments[1], home: home)
+        if let problem = BottleLocations.problem(for: root) { throw CLIError(problem.description) }
+        try home.addLocation(root, install: options.flags.contains("--default"))
+        print("Added \(root.path)")
+    case ("default", 2):
+        let root = locationRoot(arguments[1], home: home)
+        if root != home.bottles, let problem = BottleLocations.problem(for: root) { throw CLIError(problem.description) }
+        try home.addLocation(root, install: true)
+        print("New games go to \(root.path)")
+    case ("remove", 2):
+        let root = locationRoot(arguments[1], home: home)
+        guard home.locations().folders.first(where: { $0.path == root.path })?.games.isEmpty ?? true else {
+            throw CLIError("\(root.path) still holds games; move them first")
+        }
+        try home.removeLocation(root)
+        print("Forgot \(root.path)")
+    default:
+        throw CLIError("riftway locations [add <folder> [--default] | default <folder|home> | remove <folder>]")
+    }
 }
 
 func findGame(_ library: Library, _ query: String?) throws -> LibraryEntry {
@@ -815,6 +861,24 @@ do {
         try library.save(game, in: entry.folder)
         print("Bridge: \(app.path)")
         if options.flags.contains("--default") { try await setDefault(app, schemes: game.schemes) }
+    case "locations":
+        try locations(options)
+    case "move":
+        let library = Library()
+        let entry = try findGame(library, options.positional.first)
+        guard options.positional.count == 2 else { throw CLIError("Pass the game and a folder (or home)") }
+        let location = locationRoot(options.positional[1], home: library.home)
+        let moving = library.entries().filter { $0.root == entry.root }
+        print("Moving \(moving.map(\.game.name).joined(separator: ", ")) to \(location.path)…")
+        let root = try BottleMove.move(entry, to: location, home: library.home, progress: { fraction in
+            print(String(format: "\r%5.1f %%", fraction * 100), terminator: "")
+            fflush(stdout)
+        })
+        print("")
+        for game in library.entries() where game.root == root && game.game.bridge != nil {
+            _ = try GameLauncher.makeBridge(for: game, shimBinary: try shimBinary(), home: library.home)
+        }
+        print("Moved to \(root.path)")
     case "cover":
         let library = Library()
         let entry = try findGame(library, options.positional.first)

@@ -119,4 +119,31 @@ enum ReportText {
     static func size(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
+
+    /// Why a folder can't hold games (the same rules as Recall).
+    static func location(_ problem: BottleLocations.Problem) -> String {
+        switch problem {
+        case .unreadable: "No se puede leer esa carpeta. Elige otra."
+        case .network: "Los discos de red no sirven: elige un disco conectado a esta Mac."
+        case .readOnly(let drive): "\(drive) es de solo lectura. Elige otro lugar."
+        case .format(let drive, let format):
+            "\(drive) está formateado como \(format). Wine necesita APFS o Mac OS Extended; reformatearlo en la Utilidad de Discos lo borra."
+        case .caseSensitive(let drive): "\(drive) distingue mayúsculas y minúsculas, y los juegos de Windows no lo soportan. Elige otro disco."
+        case .cloud: "Las carpetas de iCloud Drive u otra nube no sirven. Elige una que no se sincronice."
+        case .notEmpty: "Esa carpeta Riftway ya tiene otros archivos. Elige otro lugar."
+        }
+    }
+
+    static func move(_ failure: BottleMove.Failure) -> String {
+        switch failure {
+        case .running: "Cierra el juego (y su launcher) antes de moverlo."
+        case .disconnected(let drive): "\(drive) no está conectado."
+        case .unsuitable(let problem): location(problem)
+        case .alreadyThere: "El juego ya está ahí."
+        case .exists(let path): "Ya hay una carpeta \((path as NSString).lastPathComponent) ahí."
+        case .notEnoughSpace(let needed, let free): "Necesita \(size(needed)) y ahí hay \(size(free)) libres."
+        case .incomplete: "La copia no quedó igual que el original. El juego se queda donde estaba."
+        case .cancelled: "Cancelado. El juego se queda donde estaba."
+        }
+    }
 }

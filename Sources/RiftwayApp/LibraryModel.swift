@@ -55,6 +55,21 @@ final class LibraryModel {
     var storeOffer: StoreOffer?
     /// Ticks of the running watch, for the slower launcher check.
     private var ticks = 0
+    /// Where bottles live and where new games go (PRD-02 R2.3).
+    private(set) var locations = BottleLocations()
+    /// Added folders whose disk is disconnected, with the games last seen there.
+    private(set) var disconnected: [BottleLocations.Folder] = []
+    /// Bottles being moved (by root path): the copied fraction.
+    private(set) var moving: [String: Double] = [:]
+    private var moveCancelled: [String: CancelFlag] = [:]
+    private var volumes: [NSObjectProtocol] = []
+
+    final class CancelFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+        var isSet: Bool { lock.withLock { value } }
+        func set() { lock.withLock { value = true } }
+    }
 
     struct StoreOffer: Identifiable {
         let launcher: LibraryEntry
@@ -75,6 +90,13 @@ final class LibraryModel {
         activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
                                                             queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkStoreGames() }
+        }
+        // A disk with games connected or ejected: they come and go.
+        let center = NSWorkspace.shared.notificationCenter
+        volumes = [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification].map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.reload() }
+            }
         }
         watcher = Task { [weak self] in
             while !Task.isCancelled {
@@ -205,6 +227,8 @@ final class LibraryModel {
     func reload() {
         runtimes = library.home.installedRuntimes()
         entries = library.entries()
+        locations = library.home.locations()
+        disconnected = library.disconnectedFolders()
         for entry in entries where icons[entry.id] == nil {
             if let data = GameLauncher.iconData(for: entry), let image = NSImage(data: data) { icons[entry.id] = image }
         }
@@ -219,6 +243,90 @@ final class LibraryModel {
         if FileManager.default.isExecutableFile(atPath: helpers.path) { return helpers }
         // Run from `swift build`: the shim sits next to the app's executable.
         return Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent(ShimBundle.executableName)
+    }
+
+    // MARK: Locations (PRD-02 R2.3)
+
+    /// Asks for a folder for games and returns its `Riftway` folder, or nil
+    /// (cancelled, or a disk that can't hold them: `problem` says why).
+    func chooseLocation(message: String) -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Elegir"
+        panel.message = message
+        guard panel.runModal() == .OK, let folder = panel.url else { return nil }
+        let root = BottleLocations.root(forChosen: folder)
+        if let problem = BottleLocations.problem(for: root) {
+            self.problem = ReportText.location(problem)
+            return nil
+        }
+        return root
+    }
+
+    /// "Esta Mac" for the home's `Bottles`, else the disk and folder.
+    func locationTitle(_ root: URL) -> String {
+        root.standardizedFileURL == library.home.bottles.standardizedFileURL ? "Esta Mac" : BottleLocations.title(root)
+    }
+
+    /// Where a new game goes, and whether its disk is disconnected.
+    var installLocation: (title: String, missing: Bool) {
+        _ = locations  // observed: Settings changes it
+        return (locationTitle(library.home.installFolder), library.home.installFolderIsMissing)
+    }
+
+    /// Where new games go: `bottles` (this Mac) or an added folder.
+    func setInstallLocation(_ root: URL) {
+        do { try library.home.addLocation(root, install: true) } catch { problem = "\(error)" }
+        reload()
+    }
+
+    func removeLocation(_ root: URL) {
+        do { try library.home.removeLocation(root) } catch { problem = "\(error)" }
+        reload()
+    }
+
+    /// The games that move with `entry`: everything in its bottle.
+    func bottleGames(_ entry: LibraryEntry) -> [LibraryEntry] {
+        entries.filter { $0.root == entry.root }
+    }
+
+    func moveProgress(_ entry: LibraryEntry) -> Double? { moving[entry.root.path] }
+
+    /// Moves the game's bottle (with its launcher's games) and rebuilds their bridges.
+    func move(_ entry: LibraryEntry, to location: URL) {
+        let key = entry.root.path
+        guard moving[key] == nil else { return }
+        let flag = CancelFlag()
+        moving[key] = 0
+        moveCancelled[key] = flag
+        let home = library.home
+        let library = library
+        let shim = shimBinary
+        log.write("app: moving \(entry.root.lastPathComponent) to \(BottleLocations.title(location))")
+        Task {
+            do {
+                try await Task.detached {
+                    let root = try BottleMove.move(entry, to: location, home: home, progress: { fraction in
+                        Task { @MainActor [weak self] in if self?.moving[key] != nil { self?.moving[key] = fraction } }
+                    }, isCancelled: { flag.isSet })
+                    try Self.rebuildBridges(in: root, library: library, shim: shim)
+                }.value
+                log.write("app: moved \(entry.root.lastPathComponent)")
+            } catch BottleMove.Failure.cancelled {
+                log.write("app: moving \(entry.root.lastPathComponent) cancelled")
+            } catch {
+                problem = (error as? BottleMove.Failure).map(ReportText.move) ?? "\(error)"
+            }
+            moving[key] = nil
+            moveCancelled[key] = nil
+            reload()
+        }
+    }
+
+    func cancelMove(_ entry: LibraryEntry) {
+        moveCancelled[entry.root.path]?.set()
     }
 
     // MARK: Runtimes
@@ -245,6 +353,10 @@ final class LibraryModel {
     func install(_ report: InstallerReport, profile: GameProfile?) {
         guard let runtime = runtimes.first else {
             problem = "Primero instala un runtime (menú Archivo › Instalar runtime…)."
+            return
+        }
+        guard !library.home.installFolderIsMissing else {
+            problem = "\(installLocation.title) no está conectado. Conéctalo, o cambia dónde se instalan los juegos en Ajustes."
             return
         }
         let job = InstallJob(installation: Installation(report: report, runtime: runtime, library: library, profile: profile))

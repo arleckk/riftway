@@ -58,6 +58,17 @@ final class ShimDelegate: NSObject, NSApplicationDelegate {
     @discardableResult
     private func launch(secret: String?, _ makePlan: () throws(BridgeError) -> LaunchPlan) -> Bool {
         guard let config else { quitSoon(); return false }
+        // A bottle on a disconnected disk: say so, and never let Wine make a
+        // new prefix (or a folder) in its place.
+        let bottleRoot = URL(fileURLWithPath: config.bottle.prefix, isDirectory: true).deletingLastPathComponent()
+        guard BottleLocations.isAvailable(bottleRoot), FileManager.default.fileExists(atPath: config.bottle.prefix) else {
+            let drive = BottleLocations.driveName(bottleRoot)
+            log.write("shim: the bottle is not there (\(drive) disconnected?)")
+            alert("Conecta \(drive) y vuelve a abrir \(config.displayName): su botella está ahí.",
+                  title: "\(config.displayName) está en \(drive)")
+            quitSoon()
+            return false
+        }
         do {
             var plan = try makePlan()
             if config.wineLog {
@@ -71,7 +82,6 @@ final class ShimDelegate: NSObject, NSApplicationDelegate {
             } else {
                 let pid = try Launcher.start(plan, outputLog: config.sessionLog())
                 log.write("shim: started pid \(pid) in bottle \(config.bottle.name): \(plan.logDescription(hiding: secret))")
-                let bottleRoot = URL(fileURLWithPath: config.bottle.prefix, isDirectory: true).deletingLastPathComponent()
                 if InputHelper.startIfNeeded(app: config.inputHelper.map { URL(fileURLWithPath: $0) }, bottleRoot: bottleRoot) {
                     log.write("shim: started Riftway Input for the game's controller layout")
                 }
@@ -86,11 +96,11 @@ final class ShimDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    private func alert(_ message: String) {
+    private func alert(_ message: String, title: String? = nil) {
         NSApp.setActivationPolicy(.accessory)
         NSApp.activate()
         let alert = NSAlert()
-        alert.messageText = "\(config?.displayName ?? "Riftway") could not open the link"
+        alert.messageText = title ?? "\(config?.displayName ?? "Riftway") could not open the link"
         alert.informativeText = message
         alert.runModal()
     }

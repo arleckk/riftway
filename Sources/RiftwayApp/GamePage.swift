@@ -391,8 +391,9 @@ private struct AdvancedTab: View {
                     Button("Mostrar la carpeta del juego") { library.showStoreFolder(entry) }
                     Button("Reconstruir acceso directo") { library.rebuildBridge(entry) }
                 }
-                Text("El modo diagnóstico, Direct3D y lo demás de Wine se ajustan en la página de Steam: es su botella.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text("El modo diagnóstico, Direct3D y lo demás de Wine se ajustan en la página de Steam: es su botella. "
+                     + "Está en \(library.locationTitle(entry.location)) y se mueve con Steam, desde su página.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Block(title: "Quitar") {
                 HStack {
@@ -450,6 +451,7 @@ private struct AdvancedTab: View {
             }
             .disabled(library.running.contains(entry.id))
             coverBlock
+            LocationBlock(entry: entry, library: library)
             Block(title: "Archivos") {
                 HStack {
                     Button("Abrir disco C:") { library.showDriveC(entry) }
@@ -469,6 +471,71 @@ private struct AdvancedTab: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+/// Where the bottle is, and moving it to another location (PRD-02 R2.3).
+private struct LocationBlock: View {
+    let entry: LibraryEntry
+    @Bindable var library: LibraryModel
+    @State private var destination: URL?
+
+    var body: some View {
+        let others = library.bottleGames(entry).filter { $0.id != entry.id }
+        let isOpen = library.bottleGames(entry).contains { library.running.contains($0.id) }
+        Block(title: "Ubicación") {
+            HStack(spacing: 8) {
+                Image(systemName: entry.location.path.hasPrefix("/Volumes/") ? "externaldrive" : "internaldrive")
+                    .foregroundStyle(.secondary)
+                Text(library.locationTitle(entry.location))
+                Text(entry.root.path).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    .textSelection(.enabled)
+            }
+            if let progress = library.moveProgress(entry) {
+                HStack(spacing: 10) {
+                    ProgressView(value: progress).frame(width: 220)
+                    Text("Moviendo… \(Int(progress * 100)) %").font(.callout).monospacedDigit()
+                    Button("Cancelar") { library.cancelMove(entry) }
+                }
+            } else {
+                Menu("Mover a…") {
+                    ForEach(targets, id: \.path) { root in
+                        Button(library.locationTitle(root)) { destination = root }
+                            .disabled(!BottleLocations.isAvailable(root))
+                    }
+                    if !targets.isEmpty { Divider() }
+                    Button("Otra carpeta…") {
+                        destination = library.chooseLocation(message: "Elige a dónde mover \(entry.game.name) (un disco APFS o Mac OS Extended). Riftway crea ahí una carpeta Riftway.")
+                    }
+                }
+                .fixedSize()
+                .disabled(isOpen)
+            }
+            Text(isOpen ? "Cierra el juego para moverlo."
+                 : others.isEmpty ? "Moverlo a otro disco copia la botella completa y, ya revisada la copia, la borra de aquí."
+                 : "Se mueven también sus juegos (\(others.map(\.game.name).joined(separator: ", "))): están en su botella.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .confirmationDialog(destination.map { "¿Mover \(entry.game.name) a \(library.locationTitle($0))?" } ?? "",
+                            isPresented: Binding(get: { destination != nil }, set: { if !$0 { destination = nil } })) {
+            Button("Mover") {
+                if let destination { library.move(entry, to: destination) }
+                destination = nil
+            }
+        } message: {
+            if let destination {
+                Text(BottleLocations.sameVolume(entry.root, destination)
+                     ? "Está en el mismo disco: es instantáneo."
+                     : "Se copia a \(library.locationTitle(destination)) y, ya revisada la copia, se borra de \(library.locationTitle(entry.location)). Con juegos grandes tarda unos minutos; no desconectes el disco mientras tanto.")
+            }
+        }
+    }
+
+    /// This Mac and the added folders, except where the bottle is now.
+    private var targets: [URL] {
+        let home = library.library.home.bottles
+        return ([home] + library.locations.folders.map(\.url))
+            .filter { $0.standardizedFileURL != entry.location.standardizedFileURL }
     }
 }
 
