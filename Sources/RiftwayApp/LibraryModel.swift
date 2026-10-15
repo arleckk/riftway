@@ -427,19 +427,31 @@ final class LibraryModel {
         setOptions(entry) { $0.direct3D11 = backend }
     }
 
-    /// Changes the player's options and rebuilds the bridge, which carries them.
+    /// The size the game's programs draw at, as Windows' scaling (nil: what its profile says).
+    func setInterfaceDPI(_ entry: LibraryEntry, _ dpi: Int?) {
+        let programs = entry.interfacePrograms
+        setOptions(entry) { $0.appDPI = dpi.map { ($0, programs) } }
+    }
+
+    /// Changes the player's options and rebuilds the bottle's bridges, which carry them.
     private func setOptions(_ entry: LibraryEntry, _ change: (inout GameOptions) -> Void) {
         var record = entry.record
         change(&record.options)
         do {
             try library.save(record, in: entry.root)
-            if entry.game.bridge != nil, let updated = library.current(entry) {
-                _ = try GameLauncher.makeBridge(for: updated, shimBinary: shimBinary, home: library.home)
-            }
+            try Self.rebuildBridges(in: entry.root, library: library, shim: shimBinary)
         } catch {
             problem = "\(error)"
         }
         reload()
+    }
+
+    /// Every bridge of a bottle: its game's and those of the games its
+    /// launcher installed, which run with the bottle's options too.
+    nonisolated private static func rebuildBridges(in root: URL, library: Library, shim: URL) throws {
+        for entry in library.entries() where entry.root == root && entry.game.bridge != nil {
+            _ = try GameLauncher.makeBridge(for: entry, shimBinary: shim, home: library.home)
+        }
     }
 
     /// A profile that matches a game without one.
@@ -455,8 +467,8 @@ final class LibraryModel {
         Task {
             do {
                 try await Task.detached {
-                    let updated = try library.apply(profile, to: entry)
-                    if updated.game.bridge != nil { _ = try GameLauncher.makeBridge(for: updated, shimBinary: shim, home: library.home) }
+                    _ = try library.apply(profile, to: entry)
+                    try Self.rebuildBridges(in: entry.root, library: library, shim: shim)
                 }.value
                 log.write("app: \(entry.game.name) uses profile \(profile?.id ?? "none")")
             } catch {

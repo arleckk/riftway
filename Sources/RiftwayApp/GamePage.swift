@@ -405,6 +405,9 @@ private struct AdvancedTab: View {
         }
     }
 
+    /// A DPI as Windows names its scaling: 96 is 100 %.
+    private static func scale(_ dpi: Int) -> String { "\(dpi * 100 / 96) %" }
+
     private var coverBlock: some View {
         Block(title: "Portada") {
             HStack {
@@ -431,6 +434,18 @@ private struct AdvancedTab: View {
                 .fixedSize()
                 Text("wined3d no pasa de shader model 3 en macOS: sirve para juegos sencillos o para comparar.")
                     .font(.caption).foregroundStyle(.secondary)
+                Picker("Tamaño de la interfaz", selection: Binding(
+                    get: { entry.record.options.appDPI?.dpi }, set: { library.setInterfaceDPI(entry, $0) })) {
+                    Text("Lo que diga el perfil (\(Self.scale(entry.profileInterfaceDPI)))").tag(Int?.none)
+                    ForEach(LibraryEntry.interfaceDPIs, id: \.self) { dpi in
+                        Text(Self.scale(dpi)).tag(Int?.some(dpi))
+                    }
+                }
+                .fixedSize()
+                .disabled(entry.interfacePrograms.isEmpty)
+                Text(entry.interfacePrograms.isEmpty ? "Elige primero qué abre Jugar."
+                     : "Como la escala de Windows: si las letras se ven chicas en una pantalla Retina, súbelo. Aplica a \(entry.interfacePrograms.joined(separator: ", ")) al volver a abrirlo.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Button("Configurar Jugar…", action: playSettings)
             }
             .disabled(library.running.contains(entry.id))

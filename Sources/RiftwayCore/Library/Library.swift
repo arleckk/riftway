@@ -131,6 +131,22 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
     public var setup: BottleSetup? {
         runtime.map { BottleSetup(runtime: $0, root: root, options: record.options, profile: bottleProfile ?? profile, runtimeVersion: record.runtimeVersion) }
     }
+
+    /// The sizes the player can give the interface, as Windows' scaling.
+    public static let interfaceDPIs = [96, 144, 192]
+
+    /// The programs an interface size applies to: those the player or the
+    /// profile named (Steam's webhelper draws its window), or the primary program's file.
+    public var interfacePrograms: [String] {
+        if let programs = record.options.appDPI?.programs, !programs.isEmpty { return programs }
+        if let programs = (bottleProfile ?? profile)?.appDPI?.programs, !programs.isEmpty { return programs }
+        guard let path = game.primary?.windowsPath,
+              let file = path.split(whereSeparator: { $0 == "\\" || $0 == "/" }).last else { return [] }
+        return [String(file)]
+    }
+
+    /// The interface's DPI without the player's choice: its profile's, or Wine's 96.
+    public var profileInterfaceDPI: Int { (bottleProfile ?? profile)?.appDPI?.dpi ?? 96 }
 }
 
 /// Reads and writes the library: every `Bottles/<id>/game.json`.

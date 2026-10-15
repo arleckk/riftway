@@ -102,6 +102,17 @@ import UniformTypeIdentifiers
         #expect(added.bottleProfile?.id == "steam")
         #expect(added.bottleProfile?.options.environment[GameProfile.appendArgsVariable]?.contains("steamwebhelper.exe=") == true)
         #expect(steam.bottleProfile?.id == "steam")
+        // The interface size is the profile's until the player picks one,
+        // and it reaches Steam's programs from the game too.
+        #expect(added.interfacePrograms == ["steam.exe", "steamwebhelper.exe"])
+        #expect(added.profileInterfaceDPI == 192)
+        var record = steam.record
+        record.options.appDPI = (144, steam.interfacePrograms)
+        try library.save(record, in: root)
+        let game = try #require(library.current(added))
+        let setup = BottleSetup(runtime: WineRuntime(root: "/rw"), root: game.root, options: game.record.options,
+                                profile: game.bottleProfile, runtimeVersion: "rw-1")
+        #expect(setup.environment["WINE_APP_DPI"] == "144:steam.exe;steamwebhelper.exe")
     }
 
     @Test func declinedGamesAreNotOfferedAgainButCanBeAdded() throws {

@@ -40,6 +40,12 @@ clic, se ajustan por juego y se diagnostican sin abrir Terminal.
   mouse crudo.
 - Cada ajuste muestra si viene del perfil o lo cambió el usuario, y se puede volver
   al valor del perfil.
+- Tamaño de la interfaz (pestaña Avanzado): 100 %, 150 % o 200 %, como la escala de
+  Windows, o lo que diga el perfil (Steam: 200 %). Es el DPI que ven los programas que
+  nombra el perfil (`app_dpi`) o el programa principal (`WINE_APP_DPI`). Wine da 96 DPI
+  en una pantalla Retina, así que los launchers se dibujan a la mitad. Al cambiarlo,
+  o el perfil, se reconstruyen todas las apps puente de la botella, también las de
+  los juegos de su launcher.
 
 ### Diagnóstico
 
