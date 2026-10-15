@@ -572,12 +572,40 @@ final class LibraryModel {
         setOptions(entry) { $0.appDPI = dpi.map { ($0, programs) } }
     }
 
-    /// Changes the player's options and rebuilds the bottle's bridges, which carry them.
+    /// The programs a frame rate limit applies to: nil for the bottle's own
+    /// game (the whole bottle), its profile's programs for a launcher's game.
+    func frameRatePrograms(_ entry: LibraryEntry) -> [String]? {
+        entry.game.store == nil ? nil : entry.profile?.match.executables ?? []
+    }
+
+    /// The game's frame rate limit (nil: none).
+    func frameRateLimit(_ entry: LibraryEntry) -> Int? {
+        guard let programs = frameRatePrograms(entry) else { return entry.record.options.frameRateLimit }
+        return programs.lazy.compactMap { entry.record.options.programFrameRateLimits[$0] }.first
+    }
+
+    /// Paces the game to `fps` with Metal (nil: no limit), from its next start.
+    func setFrameRateLimit(_ entry: LibraryEntry, _ fps: Int?) {
+        let programs = frameRatePrograms(entry)
+        setOptions(entry) { options in
+            guard let programs else { return options.frameRateLimit = fps }
+            for program in programs { options.programFrameRateLimits[program] = fps }
+        }
+    }
+
+    /// Metal's performance HUD in the bottle (for a launcher's game, also the launcher's).
+    func setMetalHUD(_ entry: LibraryEntry, _ on: Bool) {
+        setOptions(entry) { $0.metalHUD = on }
+    }
+
+    /// Changes the player's options and rebuilds the bottle's bridges, which
+    /// carry them, and its `dxmt.conf`.
     private func setOptions(_ entry: LibraryEntry, _ change: (inout GameOptions) -> Void) {
         var record = entry.record
         change(&record.options)
         do {
             try library.save(record, in: entry.root)
+            try library.current(entry)?.setup?.writeDXMTConf()
             try Self.rebuildBridges(in: entry.root, library: library, shim: shimBinary)
         } catch {
             problem = "\(error)"

@@ -82,6 +82,12 @@ Library (~/Library/Application Support/Riftway, or $RIFTWAY_HOME):
       bottle), or back to the one drawn from its icon.
   riftway diagnostics <game> on|off
       Diagnostic mode: Wine's errors and DLL loads in the bottle's logs/session-*.log.
+  riftway fps <game> <frames per second>|off
+      Pace the game with Metal (DXMT's d3d11.preferredMaxFrameRate); a Steam game's limit
+      is for its programs (from its profile). Best a divisor of the display's refresh rate.
+  riftway hud <game> on|off
+      Metal's performance HUD (FPS, frame and GPU time, memory) with DXMT's lines, for
+      the whole bottle (a Steam game's is Steam's).
   riftway d3d11 <game> dxmt|wined3d|profile
       What runs the game's 64-bit Direct3D 10/11: DXMT (Metal, the default), Wine's
       wined3d for a game DXMT does not run, or whatever the game's profile says.
@@ -890,7 +896,7 @@ do {
             try CoverArt.set(try Data(contentsOf: URL(fileURLWithPath: options.positional[1])), in: entry.folder)
             print("Cover: \(CoverArt.url(in: entry.folder).path)")
         }
-    case "diagnostics", "program-dll", "d3d11":
+    case "diagnostics", "program-dll", "d3d11", "fps", "hud":
         let library = Library()
         let entry = try findGame(library, options.positional.first)
         var record = entry.record
@@ -902,6 +908,20 @@ do {
             let choice = options.positional[1]
             guard choice == "profile" || Direct3D11(rawValue: choice) != nil else { throw CLIError("Pass dxmt, wined3d or profile") }
             record.options.direct3D11 = Direct3D11(rawValue: choice)
+        } else if args[1] == "fps" {
+            guard options.positional.count == 2, let fps = Int(options.positional[1]) ?? (options.positional[1] == "off" ? 0 : nil), fps >= 0 else {
+                throw CLIError("Pass frames per second, or off")
+            }
+            // A launcher's game: its programs (from its profile) in the launcher's bottle.
+            if entry.game.store != nil {
+                guard let programs = entry.profile?.match.executables, !programs.isEmpty else { throw CLIError("No profile names \(entry.game.name)'s program") }
+                for program in programs { record.options.programFrameRateLimits[program] = fps == 0 ? nil : fps }
+            } else {
+                record.options.frameRateLimit = fps == 0 ? nil : fps
+            }
+        } else if args[1] == "hud" {
+            guard options.positional.count == 2, ["on", "off"].contains(options.positional[1]) else { throw CLIError("Pass on or off") }
+            record.options.metalHUD = options.positional[1] == "on"
         } else {
             guard options.positional.count == 4 else { throw CLIError("Pass <game> <program.exe> <dll> <mode|off|remove>") }
             let (program, dll, mode) = (options.positional[1], options.positional[2], options.positional[3])
@@ -914,11 +934,16 @@ do {
         }
         try library.save(record, in: entry.root)
         guard let updated = library.entry(at: entry.root), let setup = updated.setup else { throw CLIError("Runtime missing") }
-        if args[1] == "program-dll" { try setup.applySettings() }
-        // The bridge carries the bottle's options: rebuild it.
-        if entry.game.bridge != nil { _ = try GameLauncher.makeBridge(for: updated, shimBinary: try shimBinary(), home: library.home) }
+        if args[1] == "program-dll" { try setup.applySettings() } else { try setup.writeDXMTConf() }
+        // The bridges carry the bottle's options: rebuild them all.
+        for game in library.entries() where game.root == entry.root && game.game.bridge != nil {
+            _ = try GameLauncher.makeBridge(for: game, shimBinary: try shimBinary(), home: library.home)
+        }
+        let limits = record.options.programFrameRateLimits.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }
         print("Saved. Diagnostics: \(record.options.diagnostics ? "on" : "off"); Direct3D 11: \(record.options.direct3D11?.rawValue ?? "profile")"
-              + "; program overrides: \(record.options.programDllOverrides)")
+              + "; program overrides: \(record.options.programDllOverrides)"
+              + "; FPS limit: \(([record.options.frameRateLimit.map { "\($0)" }].compactMap { $0 } + limits).joined(separator: ", ").nilIfEmpty ?? "none")"
+              + "; Metal HUD: \(record.options.metalHUD ? "on" : "off")")
     case "controller-import":
         guard let path = options.positional.first else { throw CLIError("Pass the .vdf file") }
         let url = URL(fileURLWithPath: path)
@@ -1030,4 +1055,8 @@ final class ShownPercent: @unchecked Sendable {
             return percent
         }
     }
+}
+
+extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

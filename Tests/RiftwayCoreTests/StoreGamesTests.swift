@@ -167,6 +167,35 @@ import UniformTypeIdentifiers
         #expect(library.current(game)?.profileIsStale == false)
     }
 
+    @Test func frameRateLimitsGoToTheRightSectionOfDxmtConf() throws {
+        let game = try GameProfile.load(Data(#"""
+        {"schema": 1, "id": "g", "name": "G", "status": "untested", "revision": 2,
+         "match": {"steam": ["1"], "executables": ["G-Win64-Shipping.exe"]},
+         "dxmt_conf": {"d3d11.preferredMaxFrameRate": "60"}}
+        """#.utf8))
+        var options = GameOptions()
+        options.programFrameRateLimits = ["G-Win64-Shipping.exe": 40]
+        options.metalHUD = true
+        let setup = BottleSetup(runtime: WineRuntime(root: "/rw"), root: URL(fileURLWithPath: "/tmp/b"), options: options,
+                                runtimeVersion: "rw-1", storeProfiles: [game])
+        let text = setup.dxmtConfText
+        // The player's section comes after the profile's: DXMT keeps the last value.
+        let profile = try #require(text.range(of: "[G-Win64-Shipping.exe]\nd3d11.preferredMaxFrameRate = 60"))
+        let player = try #require(text.range(of: "[G-Win64-Shipping.exe]\nd3d11.preferredMaxFrameRate = 40"))
+        #expect(profile.lowerBound < player.lowerBound)
+        #expect(setup.environment["MTL_HUD_ENABLED"] == "1")
+        // The bottle's own game: one line for the whole bottle, before any section.
+        options = GameOptions()
+        options.frameRateLimit = 30
+        let own = BottleSetup(runtime: WineRuntime(root: "/rw"), root: URL(fileURLWithPath: "/tmp/b"), options: options, storeProfiles: [game])
+        let line = try #require(own.dxmtConfText.range(of: "\nd3d11.preferredMaxFrameRate = 30\n"))
+        #expect(line.lowerBound < (own.dxmtConfText.range(of: "[G-Win64-Shipping.exe]")?.lowerBound ?? own.dxmtConfText.endIndex))
+        #expect(own.environment["MTL_HUD_ENABLED"] == nil)
+        // Saved options read back.
+        let data = try JSONEncoder().encode(setup.options)
+        #expect(try JSONDecoder().decode(GameOptions.self, from: data) == setup.options)
+    }
+
     @Test func aStoreGamesProfileCannotChangeTheWholeBottle() throws {
         func profile(_ extra: String) -> Data {
             Data(#"{"schema": 1, "id": "g", "name": "G", "status": "untested", "match": {"steam": ["1"]}\#(extra)}"#.utf8)

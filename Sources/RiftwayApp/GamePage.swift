@@ -401,6 +401,7 @@ private struct AdvancedTab: View {
     /// A launcher's game: its bottle's settings are the launcher's.
     private func storeBody(_ store: StoreLink) -> some View {
         VStack(alignment: .leading, spacing: 22) {
+            PerformanceBlock(entry: entry, library: library)
             coverBlock
             Block(title: "Archivos") {
                 HStack {
@@ -466,6 +467,7 @@ private struct AdvancedTab: View {
                 Button("Configurar Jugar…", action: playSettings)
             }
             .disabled(library.running.contains(entry.id))
+            PerformanceBlock(entry: entry, library: library)
             coverBlock
             LocationBlock(entry: entry, library: library)
             Block(title: "Archivos") {
@@ -487,6 +489,39 @@ private struct AdvancedTab: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+/// The frame rate limit and Metal's HUD (PRD-04, per-game settings).
+private struct PerformanceBlock: View {
+    let entry: LibraryEntry
+    @Bindable var library: LibraryModel
+    static let limits = [30, 40, 60, 120]
+
+    var body: some View {
+        let isOpen = library.bottleGames(entry).contains { library.running.contains($0.id) }
+        let programs = library.frameRatePrograms(entry)
+        Block(title: "Rendimiento") {
+            if programs?.isEmpty != true {
+                Picker("Límite de FPS", selection: Binding(
+                    get: { library.frameRateLimit(entry) }, set: { library.setFrameRateLimit(entry, $0) })) {
+                    Text("Sin límite").tag(Int?.none)
+                    ForEach(Self.limits, id: \.self) { Text("\($0) FPS").tag(Int?.some($0)) }
+                }
+                .fixedSize()
+                Text("Metal entrega los cuadros a ritmo fijo: se siente más fluido que subir y bajar. Mejor un divisor de la frecuencia de tu pantalla (en una de 120 Hz: 30, 40, 60 o 120). Cambia al volver a abrir el juego.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("El límite de FPS necesita saber cuál es el programa del juego, y ningún perfil lo dice todavía.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Toggle("Mostrar el HUD de rendimiento (FPS, tiempo de GPU, memoria)", isOn: Binding(
+                get: { entry.record.options.metalHUD }, set: { library.setMetalHUD(entry, $0) }))
+            Text(entry.game.store == nil ? "El HUD de Metal, con los datos de DXMT. Aparece al volver a abrir el juego."
+                 : "El HUD de Metal, con los datos de DXMT. Es de toda la botella de Steam: aparece al volver a abrir Steam.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .disabled(isOpen)
     }
 }
 

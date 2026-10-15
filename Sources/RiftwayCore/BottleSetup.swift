@@ -258,6 +258,26 @@ public struct BottleSetup: Sendable {
         return text
     }
 
+    /// `dxmt.conf`: the profile's lines and the player's, then a section for
+    /// each launcher's game's program (DXMT reads the running program's last).
+    public var dxmtConfText: String {
+        let options = effectiveOptions
+        var text = profile?.dxmtConfText ?? "# Written by Riftway from the game's profile.\n"
+        if let fps = options.frameRateLimit { text += "# The player's frame rate limit.\nd3d11.preferredMaxFrameRate = \(fps)\n" }
+        text += storeProfiles.map(\.dxmtConfSections).joined()
+        for (program, fps) in options.programFrameRateLimits.sorted(by: { $0.key < $1.key }) {
+            text += "\n# The player's frame rate limit for \(program).\n[\(program)]\nd3d11.preferredMaxFrameRate = \(fps)\n"
+        }
+        return text
+    }
+
+    /// Writes `dxmt.conf` alone: no Wine needed, read when a game makes its swap chain.
+    public func writeDXMTConf() throws {
+        let folder = prefix.appendingPathComponent("drive_c/ProgramData/Riftway", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(dxmtConfText.utf8).write(to: folder.appendingPathComponent("dxmt.conf"))
+    }
+
     /// DualShock 4 (both models and the USB adapter), DualSense and DualSense Edge.
     public static let playStationControllers = ["054c/05c4", "054c/09cc", "054c/0ba0", "054c/0ce6", "054c/0df2"]
 
@@ -266,9 +286,7 @@ public struct BottleSetup: Sendable {
     public func applySettings() throws {
         let folder = prefix.appendingPathComponent("drive_c/ProgramData/Riftway", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let conf = (profile?.dxmtConfText ?? "# Written by Riftway from the game's profile.\n")
-            + storeProfiles.map(\.dxmtConfSections).joined()
-        try Data(conf.utf8).write(to: folder.appendingPathComponent("dxmt.conf"))
+        try writeDXMTConf()
         // The profile's controller setup, unless the player has one.
         if let controller = profile?.controller, ControllerLayout.read(bottle: root) == nil {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

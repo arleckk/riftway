@@ -40,6 +40,13 @@ clic, se ajustan por juego y se diagnostican sin abrir Terminal.
   mouse crudo.
 - Cada ajuste muestra si viene del perfil o lo cambió el usuario, y se puede volver
   al valor del perfil.
+- Rendimiento (pestaña Avanzado, también en los juegos de Steam): **Límite de FPS** (30, 40,
+  60 o 120): DXMT entrega los cuadros con Metal a ese ritmo (`d3d11.preferredMaxFrameRate`),
+  también con V-Sync apagado. En el juego de la botella es una línea de `dxmt.conf`; en un
+  juego de Steam, una sección `[programa.exe]` por cada programa de su perfil, después de la
+  del perfil. Se escribe sin Wine y cambia al volver a abrir el juego. **HUD de rendimiento**:
+  el HUD de Metal (`MTL_HUD_ENABLED`) con las líneas de DXMT: FPS, tiempos de cuadro y de GPU,
+  memoria. Es de toda la botella. CLI: `riftway fps <juego> N|off`, `riftway hud <juego> on|off`.
 - Tamaño de la interfaz (pestaña Avanzado): 100 %, 150 % o 200 %, como la escala de
   Windows, o lo que diga el perfil (Steam: 200 %). Es el DPI que ven los programas que
   nombra el perfil (`app_dpi`) o el programa principal (`WINE_APP_DPI`). Wine da 96 DPI

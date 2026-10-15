@@ -39,6 +39,13 @@ public struct GameOptions: Sendable, Codable, Equatable {
     /// Diagnostic mode: Wine's errors, DLL loads and DXMT's log go to the
     /// bottle's `logs/session-<time>.log`.
     public var diagnostics = false
+    /// Frames per second DXMT paces the bottle's game to, with Metal
+    /// (`d3d11.preferredMaxFrameRate`); nil: no limit.
+    public var frameRateLimit: Int?
+    /// The same, for one program (a launcher's game in its bottle).
+    public var programFrameRateLimits: [String: Int] = [:]
+    /// Metal's performance HUD (FPS, frame and GPU time, memory) with DXMT's lines.
+    public var metalHUD = false
 
     public init() {}
 
@@ -46,6 +53,7 @@ public struct GameOptions: Sendable, Codable, Equatable {
         a.mouselook == b.mouselook && a.gameMode == b.gameMode && a.direct3D11 == b.direct3D11 && a.appDPI?.dpi == b.appDPI?.dpi
             && a.appDPI?.programs == b.appDPI?.programs && a.dllOverrides == b.dllOverrides && a.environment == b.environment
             && a.programDllOverrides == b.programDllOverrides && a.diagnostics == b.diagnostics
+            && a.frameRateLimit == b.frameRateLimit && a.programFrameRateLimits == b.programFrameRateLimits && a.metalHUD == b.metalHUD
     }
 
     /// These options under `player`'s: lists are joined, the player's values
@@ -62,11 +70,15 @@ public struct GameOptions: Sendable, Codable, Equatable {
         }
         result.environment.merge(player.environment) { $1 }
         result.diagnostics = player.diagnostics
+        result.frameRateLimit = player.frameRateLimit ?? frameRateLimit
+        result.programFrameRateLimits.merge(player.programFrameRateLimits) { $1 }
+        result.metalHUD = player.metalHUD
         return result
     }
 
     enum CodingKeys: String, CodingKey {
         case mouselook, gameMode, direct3D11, appDPI, appDPIPrograms, dllOverrides, programDllOverrides, environment, diagnostics
+        case frameRateLimit, programFrameRateLimits, metalHUD
     }
 
     public init(from decoder: Decoder) throws {
@@ -81,6 +93,9 @@ public struct GameOptions: Sendable, Codable, Equatable {
         environment = try c.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
         programDllOverrides = try c.decodeIfPresent([String: [String: String]].self, forKey: .programDllOverrides) ?? [:]
         diagnostics = try c.decodeIfPresent(Bool.self, forKey: .diagnostics) ?? false
+        frameRateLimit = try c.decodeIfPresent(Int.self, forKey: .frameRateLimit)
+        programFrameRateLimits = try c.decodeIfPresent([String: Int].self, forKey: .programFrameRateLimits) ?? [:]
+        metalHUD = try c.decodeIfPresent(Bool.self, forKey: .metalHUD) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -94,6 +109,9 @@ public struct GameOptions: Sendable, Codable, Equatable {
         try c.encode(environment, forKey: .environment)
         try c.encode(programDllOverrides, forKey: .programDllOverrides)
         try c.encode(diagnostics, forKey: .diagnostics)
+        try c.encodeIfPresent(frameRateLimit, forKey: .frameRateLimit)
+        if !programFrameRateLimits.isEmpty { try c.encode(programFrameRateLimits, forKey: .programFrameRateLimits) }
+        if metalHUD { try c.encode(metalHUD, forKey: .metalHUD) }
     }
 }
 
@@ -170,6 +188,7 @@ public enum RuntimeEnvironment {
         if let dpi = options.appDPI, !dpi.programs.isEmpty {
             env["WINE_APP_DPI"] = "\(dpi.dpi):" + dpi.programs.joined(separator: ";")
         }
+        if options.metalHUD { env["MTL_HUD_ENABLED"] = "1" }
         if options.diagnostics {
             env["WINEDEBUG"] = diagnosticChannels
             env["DXMT_LOG_LEVEL"] = "info"
