@@ -20,4 +20,8 @@ Reglas:
   anti-cheat ([PRD-07](../docs/prd/PRD-07-compatibilidad-online.md#la-línea-roja)). Por eso el
   registro solo admite `HKCU` y `HKLM/Software`, y nunca la clave `Software/Riftway`.
 - Sube `revision` con cada cambio, para que las botellas lo vuelvan a aplicar.
+- Un juego de Steam (`"match": {"steam": ["<app id>"], "executables": [...]}`) solo ajusta sus
+  propios programas dentro de la botella de Steam: `game`, `program_dll_overrides`,
+  `program_args`, `registry` y `dxmt_conf` (va en una sección `[programa.exe]`), nunca `env`
+  ni nada que cambie la botella entera.
 - Notas sin tokens, correos ni identificadores de cuenta.

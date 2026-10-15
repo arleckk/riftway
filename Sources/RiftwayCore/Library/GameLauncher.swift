@@ -172,7 +172,11 @@ public enum GameLauncher {
         try ShimBundle.register(app)
         // Game Mode's bundle, with the bridge's icon.
         let appIcon = app.appendingPathComponent("Contents/Resources/AppIcon.icns")
-        try GameModeApp.ensure(bottleRoot: entry.root, runtime: setup.runtime, options: setup.effectiveOptions, name: entry.game.name,
+        // One bundle per bottle, named after its own game (Steam, also for Palworld's bridge).
+        let bottleName = entry.game.store == nil ? entry.game.name
+            : (try? Data(contentsOf: entry.root.appendingPathComponent(Library.gameFile))).flatMap { try? Library.decoder.decode(Game.self, from: $0) }?.name
+                ?? entry.game.name
+        try GameModeApp.ensure(bottleRoot: entry.root, runtime: setup.runtime, options: setup.effectiveOptions, name: bottleName,
                                icon: FileManager.default.fileExists(atPath: appIcon.path) ? appIcon : nil)
         return app
     }

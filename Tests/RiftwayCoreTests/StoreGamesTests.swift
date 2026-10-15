@@ -115,6 +115,70 @@ import UniformTypeIdentifiers
         #expect(setup.environment["WINE_APP_DPI"] == "144:steam.exe;steamwebhelper.exe")
     }
 
+    @Test func aStoreGamesProfileAddsItsProgramsToTheLaunchersBottle() throws {
+        let (plain, _, base) = try steamHome()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let shipped = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("profiles")
+        let extra = base.appendingPathComponent("profiles")
+        try FileManager.default.createDirectory(at: extra, withIntermediateDirectories: true)
+        try #"""
+        {"schema": 1, "id": "among-us", "name": "Among Us", "revision": 3, "status": "playable",
+         "match": {"steam": ["945360"], "executables": ["Among Us.exe"], "product": ["Steam"]},
+         "game": {"WINE_GAME_MODE": ["Among Us.exe"]},
+         "program_args": {"Among Us.exe": "-screen-fullscreen 1", "steamwebhelper.exe": "--not-this"},
+         "program_dll_overrides": {"Among Us.exe": {"xinput1_3": "b"}},
+         "dxmt_conf": {"d3d11.preferredMaxFrameRate": "60"}}
+        """#.write(to: extra.appendingPathComponent("among-us.json"), atomically: true, encoding: .utf8)
+        let library = Library(home: plain.home, profiles: ProfileStore(directories: [shipped, extra]))
+        let root = plain.home.bottles.appendingPathComponent("steam")
+        try library.save(BottleRecord(name: "Steam", runtimeVersion: "rw-1", created: Date(), options: GameOptions(),
+                                      profile: "steam", profileRevision: 2), in: root)
+        let steam = try #require(library.entry(at: root))
+        // Its product says Steam, but a Steam game's profile is never a bottle's.
+        #expect(library.profiles.match(ProfileQuery(game: steam.game))?.id != "among-us")
+        #expect(!steam.profileIsStale)
+        let game = try library.addStoreGame(try #require(library.offeredStoreGames(in: steam).first), launcher: steam)
+        #expect(game.profile?.id == "among-us")
+        #expect(game.compatibility.status == .playable)
+        // Written when Steam closes: both pages say it is pending.
+        let launcher = try #require(library.entry(at: root))
+        #expect(launcher.storeProfiles.map(\.id) == ["among-us"])
+        #expect(launcher.profileIsStale && game.profileIsStale)
+        let setup = BottleSetup(runtime: WineRuntime(root: "/rw"), root: root, options: launcher.record.options,
+                                profile: launcher.profile, runtimeVersion: "rw-1", storeProfiles: launcher.storeProfiles)
+        let options = setup.effectiveOptions
+        #expect(options.gameMode == ["Among Us.exe"])
+        #expect(options.programDllOverrides["Among Us.exe"] == ["xinput1_3": "b"])
+        // Steam's own arguments stay Steam's.
+        let arguments = options.environment[GameProfile.appendArgsVariable] ?? ""
+        #expect(arguments.contains("Among Us.exe=-screen-fullscreen 1"))
+        #expect(arguments.contains("steamwebhelper.exe=--in-process-gpu"))
+        #expect(!arguments.contains("--not-this"))
+        #expect(setup.settingsFile.contains(#"AppDefaults\Among Us.exe\DllOverrides"#))
+        let sections = launcher.storeProfiles[0].dxmtConfSections
+        #expect(sections.contains("[Among Us.exe]\nd3d11.preferredMaxFrameRate = 60\n"))
+        // The bridge of the game gets the same environment as Steam's.
+        #expect(game.setup?.storeProfiles.map(\.id) ?? ["among-us"] == ["among-us"])
+        var record = launcher.record
+        record.storeProfiles = ["among-us": 3]
+        try library.save(record, in: root)
+        #expect(library.entry(at: root)?.profileIsStale == false)
+        #expect(library.current(game)?.profileIsStale == false)
+    }
+
+    @Test func aStoreGamesProfileCannotChangeTheWholeBottle() throws {
+        func profile(_ extra: String) -> Data {
+            Data(#"{"schema": 1, "id": "g", "name": "G", "status": "untested", "match": {"steam": ["1"]}\#(extra)}"#.utf8)
+        }
+        #expect(throws: GameProfile.Invalid.storeGame("env")) { try GameProfile.load(profile(#", "env": {"A": "1"}"#)) }
+        #expect(throws: GameProfile.Invalid.storeGame("dll_overrides")) { try GameProfile.load(profile(#", "dll_overrides": {"d3d11": "n"}"#)) }
+        #expect(throws: GameProfile.Invalid.storeGame("match.executables")) {
+            try GameProfile.load(profile(#", "dxmt_conf": {"d3d11.preferredMaxFrameRate": "60"}"#))
+        }
+        #expect(try GameProfile.load(profile(#", "game": {"WINE_GAME_MODE": ["g.exe"]}"#)).isStoreGame)
+    }
+
     @Test func declinedGamesAreNotOfferedAgainButCanBeAdded() throws {
         let (library, steam, base) = try steamHome()
         defer { try? FileManager.default.removeItem(at: base) }

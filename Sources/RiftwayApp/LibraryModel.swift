@@ -86,6 +86,7 @@ final class LibraryModel {
     func startWatching() {
         guard watcher == nil else { return }
         checkStoreGames()
+        applyStoreProfiles()
         // Back from the launcher's window: what it installed or removed shows now.
         activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
                                                             queue: .main) { [weak self] _ in
@@ -151,9 +152,8 @@ final class LibraryModel {
                     updated = applied
                     profileChanged = true
                 }
-                if !schemes.isEmpty || profileChanged, updated.game.bridge != nil {
-                    _ = try? GameLauncher.makeBridge(for: updated, shimBinary: shim, home: library.home)
-                }
+                // Every bridge of the bottle: its launcher's games run with its settings.
+                if !schemes.isEmpty || profileChanged { try? Self.rebuildBridges(in: updated.root, library: library, shim: shim) }
                 return schemes
             }.value
             if !newSchemes.isEmpty { log.write("app: \(entry.game.name) registered \(newSchemes.joined(separator: ", "))") }
@@ -204,6 +204,33 @@ final class LibraryModel {
         }
         log.write("app: added \(installed.name) from \(launcher.game.name)")
         reload()
+        applyStoreProfiles()
+    }
+
+    /// Writes the profiles of launchers' games (Palworld's, in Steam's bottle)
+    /// that are new or changed, in bottles that are closed now; an open one
+    /// gets them when it closes (`sessionEnded`).
+    func applyStoreProfiles() {
+        let pending = entries.filter { $0.game.store == nil && $0.storeProfilesAreStale && $0.runtime != nil
+            && !WineServer.isRunning(prefix: $0.root.appendingPathComponent("prefix")) }
+        guard !pending.isEmpty else { return }
+        let library = library
+        let shim = shimBinary
+        Task {
+            for launcher in pending {
+                do {
+                    try await Task.detached {
+                        try library.apply(launcher.profile, to: launcher)
+                        try Self.rebuildBridges(in: launcher.root, library: library, shim: shim)
+                    }.value
+                    log.write("app: wrote the profiles of \(launcher.game.name)'s games: "
+                              + launcher.storeProfiles.map { "\($0.id) r\($0.revision)" }.joined(separator: ", "))
+                } catch {
+                    log.write("app: could not write the profiles of \(launcher.game.name)'s games: \(error)")
+                }
+            }
+            reload()
+        }
     }
 
     /// The game's folder in the launcher's bottle, in Finder.

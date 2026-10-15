@@ -124,9 +124,18 @@ public struct ProfileStore: Sendable {
     /// The best profile for a game: a hash beats a product with its company or
     /// an installer's signer, which beat an executable or installer name
     /// (PRD-05 R1.2). Ties go to the profile matching on more fields.
+    /// The best profile for a game that is a bottle's own; launchers' games
+    /// have theirs (`storeProfile`).
     public func match(_ query: ProfileQuery) -> GameProfile? {
-        profiles.compactMap { profile in Self.score(profile.match, query).map { (profile, $0) } }
+        profiles.filter { !$0.isStoreGame }.compactMap { profile in Self.score(profile.match, query).map { (profile, $0) } }
             .max { a, b in a.1 != b.1 ? a.1 < b.1 : a.0.id > b.0.id }?.0
+    }
+
+    /// The profile of a game a launcher installed, by its store and app ID.
+    public func storeProfile(for link: StoreLink) -> GameProfile? {
+        switch link.store {
+        case .steam: profiles.filter { $0.match.steam.contains(link.appID) }.max { $0.revision < $1.revision }
+        }
     }
 
     static func score(_ match: GameProfile.Match, _ query: ProfileQuery) -> Int? {

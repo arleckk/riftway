@@ -101,7 +101,8 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
     public var record: BottleRecord
     /// The runtime the bottle uses, when it is installed.
     public var runtime: WineRuntime?
-    /// The game's profile, when the record names one Riftway knows.
+    /// The game's profile: the one the record names, or for a game its
+    /// launcher installed, the profile for its store app ID.
     public var profile: GameProfile?
     /// The bottle's profile, which the bottle runs with: the game's, or for a
     /// game its launcher installed, the launcher's (Steam's webhelper
@@ -109,6 +110,9 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
     public var bottleProfile: GameProfile? = nil
     /// Riftway's home, which holds the secret store wherever the bottle is.
     public var home: URL? = nil
+    /// The profiles of the games the bottle's launcher installed and the
+    /// library has: the bottle runs with their programs' settings too.
+    public var storeProfiles: [GameProfile] = []
 
     public var id: String { game.id }
 
@@ -122,8 +126,20 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
           || (runtime == nil && (game.customLaunch != nil || game.primary?.windowsPath != nil)))
     }
 
-    /// The profile changed since the bottle's registry and `dxmt.conf` were written.
-    public var profileIsStale: Bool { profile.map { $0.revision != record.profileRevision } ?? false }
+    /// The profile changed since the bottle's registry and `dxmt.conf` were
+    /// written; for the bottle's own game, also a profile of its launcher's
+    /// games that is new or changed (it is written when the launcher closes).
+    public var profileIsStale: Bool {
+        if game.store != nil { return profile.map { record.storeProfiles?[$0.id] != $0.revision } ?? false }
+        return profile.map { $0.revision != record.profileRevision } ?? false || storeProfilesAreStale
+    }
+
+    /// The launcher's games' profiles differ from those last written.
+    public var storeProfilesAreStale: Bool { appliedStoreProfiles != (record.storeProfiles ?? [:]) }
+
+    var appliedStoreProfiles: [String: Int] {
+        Dictionary(storeProfiles.map { ($0.id, $0.revision) }, uniquingKeysWith: max)
+    }
 
     /// The Riftway home's secret store (`<home>/Secrets`), also for a bottle on another disk.
     public var secrets: SecretStore {
@@ -135,7 +151,10 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
     public var location: URL { root.deletingLastPathComponent() }
 
     public var setup: BottleSetup? {
-        runtime.map { BottleSetup(runtime: $0, root: root, options: record.options, profile: bottleProfile ?? profile, runtimeVersion: record.runtimeVersion) }
+        // A launcher's game's own profile is one of `storeProfiles`, never the bottle's.
+        let bottle = bottleProfile ?? (game.store == nil ? profile : nil)
+        return runtime.map { BottleSetup(runtime: $0, root: root, options: record.options, profile: bottle,
+                                         runtimeVersion: record.runtimeVersion, storeProfiles: storeProfiles) }
     }
 
     /// The sizes the player can give the interface, as Windows' scaling.
@@ -234,7 +253,8 @@ public struct Library: Sendable {
         let bottleProfile = record.profile.flatMap(profiles.profile(id:))
         return LibraryEntry(game: game, root: root, folder: folder, record: record,
                             runtime: home.runtime(version: record.runtimeVersion)?.runtime,
-                            profile: game.store == nil ? bottleProfile : nil, bottleProfile: bottleProfile, home: home.root)
+                            profile: game.store == nil ? bottleProfile : profiles.storeProfile(for: game.store!), bottleProfile: bottleProfile,
+                            home: home.root, storeProfiles: storeProfiles(in: root))
     }
 
     /// The entry as saved now (it may have changed since `entry` was read).
@@ -248,6 +268,18 @@ public struct Library: Sendable {
     }
 
     // MARK: Games a launcher installed (PRD-04 R1.6)
+
+    /// The profiles of the launcher's games in the library, from their
+    /// `game.json` alone (reading whole entries would come back here).
+    func storeProfiles(in root: URL) -> [GameProfile] {
+        let games = root.appendingPathComponent(Self.storeGamesFolder, isDirectory: true)
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: games.path) else { return [] }
+        return names.sorted().compactMap { name in
+            guard let data = try? Data(contentsOf: games.appendingPathComponent(name).appendingPathComponent(Self.gameFile)),
+                  let link = (try? Self.decoder.decode(Game.self, from: data))?.store else { return nil }
+            return profiles.storeProfile(for: link)
+        }
+    }
 
     func storeEntries(in root: URL) -> [LibraryEntry] {
         let games = root.appendingPathComponent(Self.storeGamesFolder, isDirectory: true)
@@ -359,10 +391,17 @@ public struct Library: Sendable {
     /// The bottle's programs must be closed. Returns the updated entry.
     @discardableResult
     public func apply(_ profile: GameProfile?, to entry: LibraryEntry) throws -> LibraryEntry {
+        // A launcher's game: its profile is written with the launcher's bottle.
+        if entry.game.store != nil {
+            guard let launcher = self.entry(at: entry.root) else { return entry }
+            try apply(launcher.profile, to: launcher)
+            return current(entry) ?? entry
+        }
         var entry = entry
         entry.profile = profile
         entry.record.profile = profile?.id
         entry.record.profileRevision = profile?.revision
+        entry.record.storeProfiles = entry.storeProfiles.isEmpty ? nil : entry.appliedStoreProfiles
         if let setup = entry.setup { try setup.applySettings() }
         try save(entry.record, in: entry.root)
         if let scheme = profile?.playLink, entry.game.customLaunch == nil, entry.game.schemes.contains(scheme) {

@@ -53,15 +53,20 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
         public var executables: [String] = []
         /// SHA-256 of the installer or of a program, lowercase hex.
         public var sha256: [String] = []
+        /// Steam app IDs: a game Steam installed (PRD-04 R1.6). Such a profile
+        /// only matches those games and adds its programs' settings to the
+        /// launcher's bottle, which the game shares.
+        public var steam: [String] = []
 
         public init(product: [String] = [], company: [String] = [], signer: [String] = [], installer: [String] = [],
-                    executables: [String] = [], sha256: [String] = []) {
+                    executables: [String] = [], sha256: [String] = [], steam: [String] = []) {
             self.product = product
             self.company = company
             self.signer = signer
             self.installer = installer
             self.executables = executables
             self.sha256 = sha256
+            self.steam = steam
         }
 
         public init(from decoder: Decoder) throws {
@@ -72,10 +77,11 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
             installer = try c.decodeIfPresent([String].self, forKey: .installer) ?? []
             executables = try c.decodeIfPresent([String].self, forKey: .executables) ?? []
             sha256 = try c.decodeIfPresent([String].self, forKey: .sha256) ?? []
+            steam = try c.decodeIfPresent([String].self, forKey: .steam) ?? []
         }
 
         var isEmpty: Bool {
-            product.isEmpty && signer.isEmpty && installer.isEmpty && executables.isEmpty && sha256.isEmpty
+            product.isEmpty && signer.isEmpty && installer.isEmpty && executables.isEmpty && sha256.isEmpty && steam.isEmpty
         }
     }
 
@@ -160,6 +166,8 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
         case verifiedWithoutEvidence
         case playLink(String)
         case controllerLayer(program: String, layer: String)
+        /// A launcher's game may only set its own programs: `key` would change the whole bottle.
+        case storeGame(String)
         case programArgs(String)
 
         public var description: String {
@@ -177,6 +185,8 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
             case .playLink(let scheme): "play_link \(scheme) is not a URL scheme"
             case .controllerLayer(let program, let layer): "controller: \(program) holds layer \(layer), which it does not have"
             case .programArgs(let entry): "program_args \(entry): a program file name (.exe) and arguments, without ; or ="
+            case .storeGame(let key): "\(key): a Steam game's profile only sets its own programs (game, program_dll_overrides, "
+                + "program_args, registry and dxmt_conf for match.executables), never the launcher's bottle"
             }
         }
     }
@@ -184,7 +194,7 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
     static let knownKeys: Set<String> = ["schema", "id", "name", "revision", "match", "status", "anticheat", "tested", "env",
                                          "game", "app_dpi", "dll_overrides", "program_dll_overrides", "program_args", "registry",
                                          "dxmt_conf", "play_link", "controller", "d3d11", "notes"]
-    static let knownMatchKeys: Set<String> = ["product", "company", "signer", "installer", "executables", "sha256"]
+    static let knownMatchKeys: Set<String> = ["product", "company", "signer", "installer", "executables", "sha256", "steam"]
     public static let patches = ["WINEMAC_MOUSELOOK", "WINE_GAME_MODE"]
     /// The runtime's variable for `program_args` (wine-append-args.patch).
     public static let appendArgsVariable = "RIFTWAY_APPEND_ARGS"
@@ -228,6 +238,12 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
             }
         }
         if status == .verified, tested == nil { throw Invalid.verifiedWithoutEvidence }
+        if isStoreGame {
+            let bottleWide: [(String, Bool)] = [("env", !env.isEmpty), ("dll_overrides", !dllOverrides.isEmpty), ("d3d11", d3d11 != nil),
+                                                ("app_dpi", appDPI != nil), ("play_link", playLink != nil), ("controller", controller != nil),
+                                                ("match.executables", !dxmtConf.isEmpty && match.executables.isEmpty)]
+            if let key = bottleWide.first(where: \.1)?.0 { throw Invalid.storeGame(key) }
+        }
         if let playLink, !URLProtocolRegistration.isValidScheme(playLink) { throw Invalid.playLink(playLink) }
         for (program, controls) in controller?.programs ?? [:] {
             guard let set = controls.actionSet else { continue }
@@ -239,6 +255,10 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
 
     // MARK: What the profile does to a bottle
 
+    /// A profile for a game a launcher installed (`match.steam`): it never
+    /// becomes a bottle's own profile.
+    public var isStoreGame: Bool { !match.steam.isEmpty }
+
     /// The profile's part of a bottle's options; the player's own options go on top.
     public var options: GameOptions {
         var options = GameOptions()
@@ -249,10 +269,27 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
         options.dllOverrides = dllOverrides
         options.programDllOverrides = programDllOverrides
         options.environment = env
-        if !programArgs.isEmpty {
-            options.environment[Self.appendArgsVariable] = programArgs.keys.sorted()
-                .map { "\($0)=\(programArgs[$0]!)" }.joined(separator: ";")
+        if !programArgs.isEmpty { options.environment[Self.appendArgsVariable] = Self.appendArgs(programArgs) }
+        return options
+    }
+
+    /// The bottle's options with the programs of launchers' games added:
+    /// their lists, DLL overrides and arguments, without changing what the
+    /// bottle's profile already sets for a program.
+    public static func options(_ base: GameOptions, adding games: [GameProfile]) -> GameOptions {
+        var options = base
+        var arguments: [String: String] = [:]
+        for entry in (base.environment[appendArgsVariable] ?? "").split(separator: ";") {
+            let parts = entry.split(separator: "=", maxSplits: 1).map(String.init)
+            if parts.count == 2 { arguments[parts[0]] = parts[1] }
         }
+        for game in games {
+            options.mouselook += (game.game["WINEMAC_MOUSELOOK"] ?? []).filter { !options.mouselook.contains($0) }
+            options.gameMode += (game.game["WINE_GAME_MODE"] ?? []).filter { !options.gameMode.contains($0) }
+            options.programDllOverrides.merge(game.programDllOverrides) { mine, _ in mine }
+            arguments.merge(game.programArgs) { mine, _ in mine }
+        }
+        if !arguments.isEmpty { options.environment[appendArgsVariable] = appendArgs(arguments) }
         return options
     }
 
@@ -291,6 +328,24 @@ public struct GameProfile: Codable, Sendable, Equatable, Identifiable {
         var text = "# Written by Riftway from the profile \(id) (revision \(revision)).\n"
         for (key, value) in dxmtConf.sorted(by: { $0.key < $1.key }) { text += "\(key) = \(value)\n" }
         return text
+    }
+
+    /// A launcher's game's `dxmt.conf` lines, in a `[program.exe]` section for
+    /// each of its programs (DXMT reads only the section of the running
+    /// program), after the bottle's own lines.
+    public var dxmtConfSections: String {
+        guard !dxmtConf.isEmpty else { return "" }
+        var text = "\n# \(name): the profile \(id) (revision \(revision)).\n"
+        for program in match.executables {
+            text += "[\(program)]\n"
+            for (key, value) in dxmtConf.sorted(by: { $0.key < $1.key }) { text += "\(key) = \(value)\n" }
+        }
+        return text
+    }
+
+    /// `RIFTWAY_APPEND_ARGS`: `program=arguments` for each program, sorted.
+    static func appendArgs(_ arguments: [String: String]) -> String {
+        arguments.keys.sorted().map { "\($0)=\(arguments[$0]!)" }.joined(separator: ";")
     }
 }
 

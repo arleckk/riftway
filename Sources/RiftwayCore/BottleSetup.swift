@@ -62,6 +62,9 @@ public struct BottleRecord: Codable, Sendable, Equatable {
     /// the bottle's registry and `dxmt.conf`.
     public var profile: String?
     public var profileRevision: Int?
+    /// The profiles of the launcher's games last written to the bottle, by id
+    /// and revision (PRD-04 R1.6).
+    public var storeProfiles: [String: Int]?
 
     public init(name: String, runtimeVersion: String, created: Date, options: GameOptions,
                 profile: String? = nil, profileRevision: Int? = nil) {
@@ -108,20 +111,24 @@ public struct BottleSetup: Sendable {
     public var profile: GameProfile?
     /// The runtime's version, for the bottle's identity (`HKLM\Software\Riftway`).
     public var runtimeVersion: String?
+    /// The profiles of the games the bottle's launcher installed (Palworld in
+    /// Steam's): settings for their own programs only.
+    public var storeProfiles: [GameProfile]
 
     public init(runtime: WineRuntime, root: URL, options: GameOptions = GameOptions(), profile: GameProfile? = nil,
-                runtimeVersion: String? = nil) {
+                runtimeVersion: String? = nil, storeProfiles: [GameProfile] = []) {
         self.runtime = runtime
         self.root = root
         self.options = options
         self.profile = profile
         self.runtimeVersion = runtimeVersion
+        self.storeProfiles = storeProfiles
     }
 
-    /// What the bottle runs with: the profile's options, then the player's.
+    /// What the bottle runs with: the profile's options with its launcher's
+    /// games' programs added, then the player's.
     public var effectiveOptions: GameOptions {
-        guard let profile else { return options }
-        return profile.options.overridden(by: options)
+        GameProfile.options(profile?.options ?? GameOptions(), adding: storeProfiles).overridden(by: options)
     }
 
     public var prefix: URL { root.appendingPathComponent("prefix", isDirectory: true) }
@@ -242,7 +249,9 @@ public struct BottleSetup: Sendable {
             key(appDefaults + "\\" + Self.regEscape(program) + "\\DllOverrides",
                 overrides.sorted { $0.key < $1.key }.map { ($0.key, "\"\(Self.regEscape($0.value))\"") })
         }
-        for (path, values) in (profile?.registry ?? [:]).sorted(by: { $0.key < $1.key }) {
+        var registry = profile?.registry ?? [:]
+        for game in storeProfiles { registry.merge(game.registry) { mine, _ in mine } }
+        for (path, values) in registry.sorted(by: { $0.key < $1.key }) {
             guard let full = GameProfile.registryPath(path) else { continue }
             key(full, values.sorted { $0.key < $1.key }.compactMap { name, value in GameProfile.registryData(value).map { (name, $0) } })
         }
@@ -257,7 +266,8 @@ public struct BottleSetup: Sendable {
     public func applySettings() throws {
         let folder = prefix.appendingPathComponent("drive_c/ProgramData/Riftway", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let conf = profile?.dxmtConfText ?? "# Written by Riftway from the game's profile.\n"
+        let conf = (profile?.dxmtConfText ?? "# Written by Riftway from the game's profile.\n")
+            + storeProfiles.map(\.dxmtConfSections).joined()
         try Data(conf.utf8).write(to: folder.appendingPathComponent("dxmt.conf"))
         // The profile's controller setup, unless the player has one.
         if let controller = profile?.controller, ControllerLayout.read(bottle: root) == nil {

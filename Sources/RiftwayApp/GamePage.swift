@@ -337,8 +337,24 @@ private struct CompatibilityTab: View {
         VStack(alignment: .leading, spacing: 18) {
             CompatibilityNotice(compatibility: entry.compatibility, installed: true)
             if entry.game.store != nil {
-                Text("Los perfiles de Riftway ajustan la botella, y esta es la de Steam: su perfil está en la página de Steam.")
-                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Block(title: "Perfil") {
+                    if let profile = entry.profile {
+                        let steamOpen = library.bottleGames(entry).contains { $0.game.store == nil && library.running.contains($0.id) }
+                        FactGrid(facts: [
+                            Fact(label: "Perfil", value: profile.name, detail: ReportText.status(profile.status)),
+                            Fact(label: "Revisión", value: "\(profile.revision)",
+                                 detail: entry.profileIsStale ? (steamOpen ? "Se aplica al cerrar Steam" : "Pendiente") : "Aplicada"),
+                        ])
+                        if entry.profileIsStale && !steamOpen {
+                            Button("Aplicar ahora") { library.applyStoreProfiles() }
+                        }
+                        Text("Ajusta solo sus programas dentro de la botella de Steam, que comparte; lo demás de Wine está en la página de Steam.")
+                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text("Ningún perfil de Riftway coincide con este juego. Corre con los ajustes de la botella de Steam.")
+                            .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             } else {
             Block(title: "Perfil") {
                 if let profile = entry.profile {

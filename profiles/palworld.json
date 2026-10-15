@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "id": "palworld",
+  "name": "Palworld",
+  "revision": 1,
+  "match": {
+    "steam": [
+      "1623730"
+    ],
+    "executables": [
+      "Palworld-Win64-Shipping.exe"
+    ]
+  },
+  "status": "playable",
+  "game": {
+    "WINE_GAME_MODE": [
+      "Palworld-Win64-Shipping.exe"
+    ],
+    "WINEMAC_MOUSELOOK": [
+      "Palworld-Win64-Shipping.exe"
+    ]
+  },
+  "program_args": {
+    "Palworld-Win64-Shipping.exe": "-dx11",
+    "EpicWebHelper.exe": "--in-process-gpu --disable-gpu --disable-gpu-compositing"
+  },
+  "notes": "Juego de Steam: corre en la botella de Steam y este perfil solo ajusta sus programas. Unreal Engine 5.1 por DirectX 11 (DXMT); -dx11 evita que pruebe D3D12, que Riftway apaga. El juego arranca desde el bundle de Game Mode de la botella, para que macOS le dé prioridad de CPU y GPU y baje la latencia de los controles Bluetooth en pantalla completa, y la cámara lee el mouse crudo mientras el juego lo oculta. EpicWebHelper (el navegador CEF de las noticias) dibuja dentro de su proceso y sin GPU, como el de Steam. Control: si Steam Input está activo para Palworld, Steam aparta el control y el juego no lo ve; desactívalo en Steam (Palworld › Propiedades › Control › Desactivar Steam Input) y el control llega como uno de Xbox. En una pantalla Retina el juego elige la resolución completa de la pantalla; bajar la resolución o la calidad en el juego es lo que más rinde."
+}

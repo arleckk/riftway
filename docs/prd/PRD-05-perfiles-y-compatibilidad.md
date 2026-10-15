@@ -51,7 +51,7 @@ Los perfiles viven en [`profiles/`](../../profiles/), un archivo por juego con n
 | Campo | Qué hace |
 |---|---|
 | `revision` | Sube con cada cambio; las botellas que aplicaron una anterior la vuelven a aplicar al cerrarse |
-| `match` | `product` (con `company` si se da), `signer` (Authenticode del instalador, para instaladores sin cadenas de versión como el de DSR), `installer` (nombre del archivo, con `*`), `executables`, `sha256` |
+| `match` | `product` (con `company` si se da), `signer` (Authenticode del instalador, para instaladores sin cadenas de versión como el de DSR), `installer` (nombre del archivo, con `*`), `executables`, `sha256`, `steam` (app IDs: perfil de un juego de Steam, ver R1.6) |
 | `anticheat` | Proveedor y si necesita driver de kernel, según las pruebas |
 | `tested` | Evidencia; obligatoria para `verified` |
 | `env`, `dll_overrides` | Entorno y overrides de DLL de la botella |
@@ -78,6 +78,7 @@ de shader model 3, así que DXMT es el backend de los juegos.
 | R1.2 | Coincidencia por producto y empresa (`VS_VERSIONINFO`), por nombre de ejecutable y opcionalmente por hash. Prioridad: hash, producto con empresa, ejecutable. |
 | R1.3 | El perfil se aplica al crear la botella y en cada lanzamiento (entorno, overrides, `dxmt.conf`), nunca modificando archivos del juego. |
 | R1.4 | Argumentos para un programa que lanza otro programa (el launcher lanza el cliente): solo se soportan reescribiendo el comando del protocolo dentro de la botella, cuando el launcher usa uno. |
+| R1.6 | Perfiles de juegos de un launcher (`match.steam`, como `palworld.json`): solo coinciden con ese juego de Steam, nunca son el perfil de una botella y ajustan solo sus programas dentro de la botella del launcher, que comparten. Admiten `game`, `program_dll_overrides`, `program_args`, `registry` y `dxmt_conf`, que va en una sección `[programa.exe]` por cada `match.executables` (DXMT solo lee la del programa que corre). `env`, `dll_overrides`, `d3d11`, `app_dpi`, `play_link` y `controller` cambiarían toda la botella y se rechazan. Se suman a los del perfil del launcher sin cambiar lo que este ya define para un programa. El registro de la botella guarda qué revisión de cada uno escribió (`storeProfiles`). Uno nuevo o cambiado se escribe en cuanto la botella está cerrada, al abrir la app o al agregar el juego, o si no al cerrar el launcher, y se reconstruyen todas las apps puente de la botella. La pestaña Compatibilidad del juego muestra el perfil y si ya está aplicado. |
 | R1.5 | Feed firmado (clave pública en la app), descargado al abrir la app y como mucho cada 24 h, con caché local. Sin conexión se usa la caché. |
 
 ## Estados de compatibilidad
