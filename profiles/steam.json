@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "steam",
   "name": "Steam",
-  "revision": 1,
+  "revision": 2,
   "match": {
     "product": [
       "Steam"
@@ -25,8 +25,15 @@
     "runtime": "rw-0.1.11-spike",
     "online": true
   },
+  "app_dpi": {
+    "dpi": 192,
+    "programs": [
+      "steam.exe",
+      "steamwebhelper.exe"
+    ]
+  },
   "program_args": {
     "steamwebhelper.exe": "--in-process-gpu --disable-gpu --disable-gpu-compositing --no-sandbox"
   },
-  "notes": "Steam's interface (steamwebhelper, Chromium) composites in a separate process that draws into the browser's window, which Wine does not show: the window stays black. In-process and in software it shows, as with Proton. The first launch can stop on 'Failed to load steamui.dll' when a package of the update fails to download; launching again finishes the update."
+  "notes": "Steam's interface (steamwebhelper, Chromium) composites in a separate process that draws into the browser's window, which Wine does not show: the window stays black. In-process and in software it shows, as with Proton. The first launch can stop on 'Failed to load steamui.dll' when a package of the update fails to download; launching again finishes the update. On a Retina display Wine gives programs 96 DPI, so Steam drew at half size; app_dpi gives Steam and its webhelper 192, as Windows at 200 %."
 }
