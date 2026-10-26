@@ -1,87 +1,107 @@
 # Riftway
 
-> Plan del producto y PRDs: [docs/PLAN.md](docs/PLAN.md). Hoy están implementados el
-> hito M0 (puente de URLs) y M1 (app, asociación con `.exe`/`.msi` y análisis de
-> instaladores). Licencia: [Apache 2.0](LICENSE).
+> **🚧 Trabajo en progreso.** Riftway está en desarrollo activo y todavía no es para uso
+> general: no hay releases ni descargas, la mayoría de los juegos no se han probado y
+> cualquier cosa puede cambiar o romperse entre commits. Si lo pruebas, hazlo con juegos y
+> cuentas que no te importe perder, y reporta lo que encuentres.
 
-## Releases y actualizaciones (M5)
+Juegos e instaladores de Windows en una Mac con Apple Silicon, con doble clic: descargas el
+instalador, lo abres, sigues el asistente del juego y queda en tu biblioteca y en Launchpad
+con su ícono. Los links de su sitio (`dsropen:…`, `steam://…`) abren el juego, sin Terminal,
+CrossOver ni configuración manual.
+
+Riftway se apoya en Wine, Rosetta 2 y DXMT (Direct3D 11 sobre Metal), con un runtime propio
+y reproducible. A diferencia de las herramientas hechas para un solo juego, es genérico: un
+motor común más **perfiles declarativos por juego** ([`profiles/`](profiles)).
+
+## Estado
+
+| | |
+|---|---|
+| Hardware probado | Mac con Apple Silicon (M3 Max), macOS 26.6 |
+| Releases | Ninguna todavía: se compila desde el código, runtime incluido |
+| Firma | Ad hoc (sin Developer ID ni notarización) |
+| Hitos | M0, M1, M3 y M6 hechos; M2, M4 y M5 a medias ([plan](docs/PLAN.md#hitos)) |
+
+### Juegos probados
+
+Solo esto se ha probado de verdad. Todo lo demás está **sin probar**: puede funcionar, a
+medias o nada.
+
+| Juego | Estado | Notas |
+|---|---|---|
+| Digimon Super Rumble | ✅ Verificado | En línea, con control (launcher en modo escritorio, juego en teclado). Usa XIGNCODE3 en modo usuario |
+| Steam (cliente) | ✅ Verificado | Inicia sesión, instala juegos y Riftway los agrega a la biblioteca |
+| Palworld (Steam) | ⚠️ Jugable con problemas | **El personaje del jugador no se ve** (en investigación). El control necesita desactivar Steam Input para el juego. ~20 FPS a 4K en Épico |
+| Epic, GOG Galaxy, EA app, Ubisoft Connect, Battle.net | ❔ Sin probar | Riftway descarga sus instaladores de Windows, pero no se han probado |
+
+¿Probaste otro? Abre un issue con el juego, tu Mac, la versión de macOS y qué pasó.
+
+### Lo que hay
+
+- **Instalar con doble clic**: análisis del `.exe`/`.msi` sin ejecutarlo (tipo de instalador,
+  firma Authenticode, anti-cheat), botella nueva por juego y descubrimiento de lo que instaló.
+- **Biblioteca** con portadas, modo sillón con control y acceso directo por juego en
+  `~/Applications/Riftway`.
+- **Puente de URLs**: los links del sitio del juego llegan al programa de Windows que
+  registró el esquema.
+- **Juegos de Steam** en la biblioteca, cada uno con su acceso directo.
+- **Controles**: el control llega al juego como uno de Xbox, o se traduce a teclado y mouse
+  por programa (editor en la app, importa configuraciones de Steam Input).
+- **Por juego**: perfil, Direct3D 11 por DXMT o wined3d, límite de FPS, HUD de Metal,
+  tamaño de la interfaz, modo diagnóstico, y elegir o cambiar el disco donde vive.
+
+### Lo que no
+
+- **Anti-cheats de kernel** (Vanguard, EAC/BattlEye con driver, etc.): no funcionan y Riftway
+  no intenta evadirlos ni ocultar que corre en Wine ([PRD-07](docs/prd/PRD-07-compatibilidad-online.md)).
+  Los juegos en línea con anti-cheat pueden violar sus términos: pruébalos solo con cuentas
+  desechables.
+- Direct3D 12, MetalFX y DLSS no están soportados.
+- No hay descargas, actualizaciones automáticas publicadas ni beta todavía.
+
+## Compilar
+
+Requiere una Mac con Apple Silicon, Rosetta 2 y las Command Line Tools de Xcode.
 
 ```sh
-swift run riftway-release keygen      # una vez: llave de firma en ~/.riftway (nunca en el repo)
-scripts/release.sh --runtime work/runtime/artifacts/rw-0.1.2-spike.tar.gz --notes "…"
-scripts/publish-release.sh            # sube build/release/<versión> como borrador en GitHub Releases
-gh release edit v<versión> --draft=false   # publicarla: la app la ve como "latest"
-```
-
-Deja en `build/release/<versión>/` el DMG, el zip que descarga el actualizador y
-`feed.json` con su firma Ed25519. La app busca actualizaciones en `RiftwayFeedURL` de
-`app/Info.plist` (la release más nueva de GitHub; `RIFTWAY_FEED_URL` al desarrollar); verifica la firma del feed,
-el tamaño y el SHA-256 de cada descarga y la firma de código de la app nueva antes de
-cambiar nada. Detalles en [PRD-06](docs/prd/PRD-06-distribucion-y-actualizaciones.md#estado-de-m5).
-
-## La app (M1)
-
-```sh
+swift build
+swift test
 scripts/build-app.sh          # arma build/Riftway.app (firma ad hoc)
 open build/Riftway.app
 ```
 
-Abre un `.exe` o `.msi` (doble clic si Riftway es la app predeterminada, "Abrir con",
-arrastrándolo a la ventana o al Dock, o ⌘O) y Riftway lo analiza sin ejecutarlo: tipo de
-instalador, producto, arquitectura, permisos, firma Authenticode, origen de la descarga y
-archivos acompañantes. En el primer arranque ofrece volverse la app predeterminada para
-archivos de Windows. La instalación llega en M3, sobre el runtime propio (M2).
+La app necesita un runtime de Wine. Todavía no se publica uno: se compila con la receta de
+[`runtime/`](runtime) siguiendo [docs/RUNTIME-BUILD.md](docs/RUNTIME-BUILD.md) (Wine, DXMT y
+sus dependencias, desde fuentes fijadas) y se instala desde la app (Archivo › Instalar
+runtime…) o con `riftway runtime-install <carpeta>`.
 
-Desde la terminal, lo mismo con `riftway inspect <archivo>...`.
+Casi todo también se puede hacer desde la terminal: `swift run riftway help`.
 
-## Puente de URLs (M0)
+## Documentación
 
-Lleva a una botella de Wine los URLs que macOS recibe (por ejemplo, un login web en
-Safari que redirige a `dsropen:…`), y se los entrega al programa de Windows que
-registró ese esquema, igual que lo haría `ShellExecute` dentro de Windows.
+- [Plan del producto](docs/PLAN.md): visión, principios, arquitectura, hitos y corpus de prueba.
+- PRDs: [instalar](docs/prd/PRD-01-instalar-con-doble-clic.md),
+  [runtime y botellas](docs/prd/PRD-02-runtime-y-botellas.md),
+  [puente de URLs](docs/prd/PRD-03-puente-de-urls.md),
+  [biblioteca](docs/prd/PRD-04-biblioteca-y-lanzamiento.md),
+  [perfiles](docs/prd/PRD-05-perfiles-y-compatibilidad.md),
+  [distribución](docs/prd/PRD-06-distribucion-y-actualizaciones.md),
+  [juegos en línea](docs/prd/PRD-07-compatibilidad-online.md),
+  [controles](docs/prd/PRD-08-controles.md).
+- [Cómo se construye el runtime](docs/RUNTIME-BUILD.md).
+- [Perfiles de juego](profiles/README.md): cómo escribir uno y sus reglas.
 
-```
-Safari ──dsropen:…──▶ macOS (LaunchServices)
-                        │  CFBundleURLTypes
-                        ▼
-              ~/Applications/Riftway/DSR.app   (puente, firmado ad hoc)
-                        │  lee HKCR\dsropen\shell\open\command de la botella
-                        ▼
-   wine --bottle DSR --workdir … --cx-app "SuperRumble Launcher.exe" "dsropen:…"
-                        │  (dentro de Wine; Riftway no interviene)
-                        ▼
-        Launcher actualiza ──▶ Client-Win64-Shipping.exe TOKEN:EMAIL
-```
+## Contribuir
 
-Riftway nunca interpreta el contenido del URL. Lo valida (esquema permitido, sin
-caracteres de control ni comillas, longitud máxima) y lo pasa como un solo
-argumento, sin pasar por un shell. Los logs (`~/Library/Logs/Riftway/riftway.log`)
-solo muestran el esquema, la longitud y un hash.
+Los reportes de juegos (funcione o no) son lo más útil ahora mismo. Un perfil nuevo o
+corregido es un PR a [`profiles/`](profiles); revísalo con
+`swift run riftway profiles --check profiles/<juego>.json`. Nada de tokens, correos ni
+identificadores de cuenta en logs, notas o capturas.
 
-## Uso
+## Licencia
 
-```sh
-swift build -c release
-.build/release/riftway bottles                       # botellas y protocolos registrados
-.build/release/riftway resolve 'dsropen:x' --bottle DSR   # qué comando se ejecutaría
-.build/release/riftway make-shim --bottle DSR --name "Digimon Super Rumble" --default
-.build/release/riftway remove-shim ~/Applications/Riftway/"Digimon Super Rumble.app"
-```
-
-- `make-shim` reclama todos los protocolos propios de la botella. Nunca reclama
-  `http`, `https`, `mailto` ni otros esquemas del sistema, que Wine reenvía a
-  `winebrowser.exe` y de vuelta a macOS. Toma el `.ico` que esté junto al launcher.
-- `--register` lo añade a LaunchServices; `--default` además lo vuelve el
-  manejador predeterminado de cada esquema.
-- `--dry-run` genera un puente que solo escribe en el log el comando que ejecutaría.
-- `--prefix DIR --wine PATH` usa un Wine propio (con `WINEPREFIX`) en vez de CrossOver.
-- Abierto sin URL (doble clic, Launchpad), el puente abre el launcher.
-
-El `.app` debe vivir fuera de carpetas temporales: LaunchServices marca como
-`launch-disabled` los manejadores que están en `/tmp` o `/private/var/folders`.
-
-## Pruebas
-
-```sh
-swift test
-```
+[Apache 2.0](LICENSE). El runtime incluye software de terceros con sus propias licencias
+(Wine es LGPL; ver [docs/RUNTIME-BUILD.md](docs/RUNTIME-BUILD.md)). Los íconos de los
+launchers son marcas de sus dueños ([app/Launchers/NOTICE.md](app/Launchers/NOTICE.md)).
+Riftway no está afiliado a Apple, Valve, CodeWeavers ni a los estudios de los juegos.
